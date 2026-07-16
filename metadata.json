@@ -1,0 +1,11 @@
+{
+  "name": "Absensi Digital GeoFace",
+  "description": "Sistem Absensi Geotagging & Face Verification untuk Karyawan dan Admin.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

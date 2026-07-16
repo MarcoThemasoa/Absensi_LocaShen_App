@@ -1,0 +1,15 @@
+<style>
+.bg-blur { backdrop-filter: blur(10px); background: rgba(255,0,0,0.5); padding: 20px; }
+.relative { position: relative; }
+.z-50 { z-index: 50; }
+.dropdown { position: absolute; top: 100%; left: 0; background: yellow; width: 100px; height: 100px; z-index: 50; }
+.table { position: relative; background: blue; height: 50px; color: white; }
+</style>
+<div class="bg-blur">
+  Header
+  <div class="relative z-50">
+    Combobox
+    <div class="dropdown">Dropdown Options</div>
+  </div>
+</div>
+<div class="table">Table Header</div>
