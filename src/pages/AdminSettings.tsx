@@ -9,17 +9,17 @@ export default function AdminSettings() {
   const { user, logout } = useAuth();
   
   return (
-    <div className="flex flex-col min-h-full bg-slate-50 pb-32">
+    <div className="flex flex-col min-h-full bg-[#F9FAFB] pb-32">
       {/* Top Header with Gradient */}
-      <div className="bg-gradient-to-br from-teal-900 via-teal-800 to-teal-950 text-white pt-16 pb-12 px-6 flex flex-col items-center text-center rounded-b-[40px] drop-shadow-xl relative overflow-hidden shrink-0">
-        <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 rounded-full bg-teal-500/20 blur-3xl pointer-events-none"></div>
+      <div className="bg-gradient-to-br from-[#113129] via-[#1a4a3d] to-[#0d2922] text-white pt-16 pb-12 px-6 flex flex-col items-center text-center rounded-b-[40px] drop-shadow-xl relative overflow-hidden shrink-0">
+        <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 rounded-full bg-[#113129]/30 blur-3xl pointer-events-none"></div>
         <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-48 h-48 rounded-full bg-yellow-400/20 blur-3xl pointer-events-none"></div>
 
         <div className="relative z-10 w-20 h-20 shrink-0 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center text-3xl font-bold mb-4 border-2 border-white/20 shadow-xl mt-2">
           A
         </div>
         <h1 className="text-xl sm:text-2xl font-bold tracking-wide">Admin</h1>
-        <p className="text-teal-200 mt-1 font-medium bg-white/10 px-4 py-1 rounded-full text-xs sm:text-sm">ID: {user?.id}</p>
+        <p className="text-[#c8e6d9] mt-1 font-medium bg-white/10 px-4 py-1 rounded-full text-xs sm:text-sm">ID: {user?.id}</p>
       </div>
 
       <div className="p-4 sm:p-6 -mt-6 relative z-20 space-y-4 flex-1 w-full max-w-lg mx-auto">
@@ -39,9 +39,9 @@ export default function AdminSettings() {
 
             <div className="pt-2">
               <Label className="text-gray-500 text-xs uppercase tracking-wider font-semibold mb-2 block">Status Akun</Label>
-              <div className="flex items-center gap-3 p-3 rounded-xl border bg-green-50 border-green-100">
-                <ShieldCheck size={20} className="text-green-600" />
-                <span className="font-semibold text-sm text-green-700">
+              <div className="flex items-center gap-3 p-3 rounded-xl border bg-[#10B981]/10 border-[#10B981]/20">
+                <ShieldCheck size={20} className="text-[#10B981]" />
+                <span className="font-semibold text-sm text-[#10B981]">
                   Aktif & Terverifikasi
                 </span>
               </div>

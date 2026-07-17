@@ -58,13 +58,24 @@ export default function AdminLocations() {
   const [addressQuery, setAddressQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   
-  // Set default synchronously to the first location if available to avoid blank state
-  const [selectedLocationId, setSelectedLocationId] = useState<string | null>(
-    mockLocations.length > 0 ? mockLocations[0].id : null
-  );
+  // Simpan pilihan combobox ke localStorage — biar gak hilang pas refresh / ganti tab
+  const [selectedLocationId, setSelectedLocationId] = useState<string | null>(() => {
+    const saved = localStorage.getItem('adminSelectedLocationId');
+    if (saved && locations.some(l => l.id === saved)) return saved;
+    return mockLocations.length > 0 ? mockLocations[0].id : null;
+  });
 
   useEffect(() => {
-    // Attempt to auto-select the closest location
+    if (selectedLocationId) {
+      localStorage.setItem('adminSelectedLocationId', selectedLocationId);
+    }
+  }, [selectedLocationId]);
+
+  useEffect(() => {
+    // Attempt to auto-select the closest location (hanya jika belum ada pilihan tersimpan)
+    const saved = localStorage.getItem('adminSelectedLocationId');
+    if (saved && locations.some(l => l.id === saved)) return;
+
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -176,7 +187,7 @@ export default function AdminLocations() {
             <p className="text-gray-500 font-medium mt-1">Daftar lokasi kantor dan pengaturan radius (Geotagging).</p>
           </div>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <DialogTrigger render={<button className="inline-flex shrink-0 items-center justify-center bg-teal-950 hover:bg-teal-900 text-white font-medium rounded-xl h-11 px-6 shadow-md transition-all w-full md:w-auto text-sm" />}>
+            <DialogTrigger render={<button className="inline-flex shrink-0 items-center justify-center bg-[#113129] hover:bg-[#1a4a3d] text-white font-medium rounded-xl h-11 px-6 shadow-md transition-all w-full md:w-auto text-sm" />}>
               <Plus size={20} className="mr-2" /> Tambah Lokasi
             </DialogTrigger>
             <DialogContent className="sm:max-w-[425px] rounded-3xl border-white/60 bg-white/90 backdrop-blur-2xl shadow-[0_20px_60px_rgb(0,0,0,0.1)] p-6 z-[100]">
@@ -193,7 +204,7 @@ export default function AdminLocations() {
                   <Label htmlFor="address" className="text-sm font-bold text-gray-700">Cari Alamat</Label>
                   <div className="flex gap-2">
                     <Input id="address" value={addressQuery} onChange={(e) => setAddressQuery(e.target.value)} placeholder="Contoh: Jl. Sudirman, Surabaya" className="h-11 flex-1" />
-                    <Button type="button" onClick={handleSearchAddress} disabled={isSearching || !addressQuery} className="bg-teal-950 hover:bg-teal-900 text-white rounded-xl h-11 px-4">
+                    <Button type="button" onClick={handleSearchAddress} disabled={isSearching || !addressQuery} className="bg-[#113129] hover:bg-[#1a4a3d] text-white rounded-xl h-11 px-4">
                       {isSearching ? 'Mencari...' : 'Cari'}
                     </Button>
                   </div>
@@ -205,7 +216,7 @@ export default function AdminLocations() {
                     <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OpenStreetMap contributors' />
                     <MapUpdater center={[parseFloat(newLoc.lat) || -7.250445, parseFloat(newLoc.lng) || 112.768845]} />
                     <LocationPicker position={{lat: parseFloat(newLoc.lat), lng: parseFloat(newLoc.lng)}} setPosition={handleMapClick} />
-                    <Circle center={[parseFloat(newLoc.lat) || -7.250445, parseFloat(newLoc.lng) || 112.768845]} radius={parseInt(newLoc.radius) || 50} pathOptions={{ color: '#0f766e', fillColor: '#0f766e' }} />
+                    <Circle center={[parseFloat(newLoc.lat) || -7.250445, parseFloat(newLoc.lng) || 112.768845]} radius={parseInt(newLoc.radius) || 50} pathOptions={{ color: '#113129', fillColor: '#113129' }} />
                   </MapContainer>
                 </div>
                 <div className="grid gap-2">
@@ -214,7 +225,7 @@ export default function AdminLocations() {
                 </div>
               </div>
               <DialogFooter>
-                <Button onClick={handleAddLocation} disabled={!newLoc.name || !newLoc.address} className="w-full bg-teal-950 hover:bg-teal-900 text-white rounded-xl h-11 font-bold disabled:opacity-50 disabled:cursor-not-allowed">Simpan Lokasi</Button>
+                <Button onClick={handleAddLocation} disabled={!newLoc.name || !newLoc.address} className="w-full bg-[#113129] hover:bg-[#1a4a3d] text-white rounded-xl h-11 font-bold disabled:opacity-50 disabled:cursor-not-allowed">Simpan Lokasi</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -233,10 +244,10 @@ export default function AdminLocations() {
         <div className="md:col-span-2 space-y-6">
           {selectedLocation && locationDetails && (
             <Card className="rounded-3xl border border-teal-100 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
-              <CardHeader className="bg-teal-50/50 border-b border-teal-100/50">
-                <CardTitle className="text-lg font-bold text-teal-950 flex items-center justify-between gap-2">
+              <CardHeader className="border-b border-[#113129]/10">
+                <CardTitle className="text-lg font-bold text-[#113129] flex items-center justify-between gap-2">
                   <span>Detail Karyawan: {selectedLocation.name}</span>
-                  <Users size={20} className="text-teal-600 shrink-0" />
+                  <Users size={20} className="text-[#113129] shrink-0" />
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-6">
@@ -310,7 +321,7 @@ export default function AdminLocations() {
                         <div className="text-xs text-gray-500">{loc.address}</div>
                       </Popup>
                     </Marker>
-                    <Circle center={[loc.lat, loc.lng]} radius={loc.radius} pathOptions={{ color: selectedLocationId === loc.id ? '#0f766e' : '#94a3b8', fillColor: selectedLocationId === loc.id ? '#0f766e' : '#94a3b8' }} />
+                    <Circle center={[loc.lat, loc.lng]} radius={loc.radius} pathOptions={{ color: selectedLocationId === loc.id ? '#113129' : '#94a3b8', fillColor: selectedLocationId === loc.id ? '#113129' : '#94a3b8' }} />
                   </React.Fragment>
                 ))}
               </MapContainer>

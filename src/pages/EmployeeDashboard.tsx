@@ -14,26 +14,53 @@ export default function EmployeeDashboard() {
   const [time, setTime] = useState(new Date());
   const [elapsedTime, setElapsedTime] = useState('00:00:00');
 
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const isTodayAttendance = todayAttendance?.date === todayStr;
+
   const myRecentRecords = mockAttendance
     .filter(r => r.userId === user?.id)
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     .slice(0, 2);
 
-  // Calculate elapsed time
+  // Clock ticker — always runs to update the current time display
   useEffect(() => {
     const timer = setInterval(() => {
-      const now = new Date();
-      setTime(now);
+      setTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
-      if (todayAttendance?.checkInTime) {
-        // Parse check-in time
+  // Calculate elapsed working time
+  useEffect(() => {
+    if (todayAttendance?.checkInTime) {
+      // If already checked out, calculate total duration once and STOP
+      if (todayAttendance?.checkOutTime) {
+        const [inH, inM, inS] = todayAttendance.checkInTime.split(':').map(Number);
+        const [outH, outM, outS] = todayAttendance.checkOutTime.split(':').map(Number);
+        const checkInDate = new Date();
+        checkInDate.setHours(inH, inM, inS || 0);
+        const checkOutDate = new Date();
+        checkOutDate.setHours(outH, outM, outS || 0);
+        const diff = Math.max(0, checkOutDate.getTime() - checkInDate.getTime());
+        const hours = Math.floor(diff / (1000 * 60 * 60));
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+        setElapsedTime(
+          `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+        );
+        return; // No interval — timer berhenti
+      }
+
+      // Still working: run interval to update elapsed time live
+      const elapsedTimer = setInterval(() => {
+        const now = new Date();
         const [checkInHours, checkInMinutes, checkInSeconds] = todayAttendance.checkInTime
           .split(':')
           .map(Number);
         const checkInDate = new Date(now);
         checkInDate.setHours(checkInHours, checkInMinutes, checkInSeconds || 0);
 
-        // Calculate elapsed time
         const diff = now.getTime() - checkInDate.getTime();
         const hours = Math.floor(diff / (1000 * 60 * 60));
         const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
@@ -42,10 +69,10 @@ export default function EmployeeDashboard() {
         setElapsedTime(
           `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
         );
-      }
-    }, 1000);
+      }, 1000);
 
-    return () => clearInterval(timer);
+      return () => clearInterval(elapsedTimer);
+    }
   }, [todayAttendance]);
 
   return (
@@ -76,7 +103,7 @@ export default function EmployeeDashboard() {
 
       <div className="px-6 -mt-16 relative z-20 flex-1 flex flex-col">
         {/* Attendance Status Card */}
-        {todayAttendance?.checkInTime && (
+        {isTodayAttendance && todayAttendance?.checkInTime && (
           <Card className="rounded-3xl border border-teal-200/40 bg-teal-50/70 backdrop-blur-xl drop-shadow-xl mb-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
             <CardContent className="p-5">
               <div className="space-y-4">

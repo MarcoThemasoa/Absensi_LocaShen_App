@@ -76,13 +76,13 @@ export default function AdminDashboard() {
           <Card className="rounded-3xl border border-white/60 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] hover:-translate-y-1 transition-all cursor-pointer h-full">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-bold text-gray-500 uppercase tracking-wider">Jumlah Hadir</CardTitle>
-              <div className="p-2 bg-green-50 rounded-xl">
-                <CheckCircle className="text-green-600 w-6 h-6" />
+              <div className="p-2 bg-[#10B981]/10 rounded-xl">
+                <CheckCircle className="text-[#10B981] w-6 h-6" />
               </div>
             </CardHeader>
             <CardContent>
               <div className="text-4xl font-black text-gray-900 tracking-tighter">{stats.hadir}</div>
-              <p className="text-sm text-green-600 font-bold mt-2">Karyawan</p>
+              <p className="text-sm text-[#10B981] font-bold mt-2">Karyawan</p>
             </CardContent>
           </Card>
         </Link>
@@ -91,8 +91,8 @@ export default function AdminDashboard() {
           <Card className="rounded-3xl border border-white/60 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] hover:-translate-y-1 transition-all cursor-pointer h-full">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-bold text-gray-500 uppercase tracking-wider">Telat</CardTitle>
-              <div className="p-2 bg-yellow-50 rounded-xl">
-                <AlertCircle className="text-yellow-600 w-6 h-6" />
+              <div className="p-2 bg-yellow-400/10 rounded-xl">
+                <AlertCircle className="text-yellow-500 w-6 h-6" />
               </div>
             </CardHeader>
             <CardContent>
@@ -106,8 +106,8 @@ export default function AdminDashboard() {
           <Card className="rounded-3xl border border-white/60 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] hover:-translate-y-1 transition-all cursor-pointer h-full">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-bold text-gray-500 uppercase tracking-wider">Alpha</CardTitle>
-              <div className="p-2 bg-red-50 rounded-xl">
-                <AlertCircle className="text-red-600 w-6 h-6" />
+              <div className="p-2 bg-[#EF4444]/10 rounded-xl">
+                <AlertCircle className="text-[#EF4444] w-6 h-6" />
               </div>
             </CardHeader>
             <CardContent>
@@ -121,8 +121,8 @@ export default function AdminDashboard() {
           <Card className="rounded-3xl border border-white/60 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] hover:-translate-y-1 transition-all cursor-pointer h-full">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-bold text-gray-500 uppercase tracking-wider">Cuti</CardTitle>
-              <div className="p-2 bg-blue-50 rounded-xl">
-                <Calendar className="text-blue-600 w-6 h-6" />
+              <div className="p-2 bg-[#113129]/10 rounded-xl">
+                <Calendar className="text-[#113129] w-6 h-6" />
               </div>
             </CardHeader>
             <CardContent>
@@ -143,9 +143,9 @@ export default function AdminDashboard() {
                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} dy={10} />
                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} />
                  <Tooltip cursor={{ fill: '#f3f4f6' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                 <Bar dataKey="hadir" fill="#0f766e" radius={[4, 4, 0, 0]} stackId="a" name="Hadir" />
-                 <Bar dataKey="telat" fill="#ca8a04" radius={[4, 4, 0, 0]} stackId="a" name="Telat" />
-                 <Bar dataKey="alpha" fill="#dc2626" radius={[4, 4, 0, 0]} stackId="a" name="Alpha" />
+                  <Bar dataKey="hadir" fill="#10B981" radius={[4, 4, 0, 0]} stackId="a" name="Hadir" />
+                  <Bar dataKey="telat" fill="#FACC15" radius={[4, 4, 0, 0]} stackId="a" name="Telat" />
+                  <Bar dataKey="alpha" fill="#EF4444" radius={[4, 4, 0, 0]} stackId="a" name="Alpha" />
                </BarChart>
              </ResponsiveContainer>
            </div>

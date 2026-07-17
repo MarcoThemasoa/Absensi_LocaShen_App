@@ -164,11 +164,11 @@ export default function AdminEmployees() {
             placeholder="Pilih Cabang"
           />
           <div className="flex overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 gap-2 hide-scrollbar w-full sm:w-auto">
-            <Button variant={filterStatus === 'semua' ? 'default' : 'outline'} className={`rounded-xl shrink-0 ${filterStatus === 'semua' ? 'bg-teal-950 text-white' : ''}`} size="sm" onClick={() => setFilterStatus('semua')}>Semua</Button>
-            <Button variant={filterStatus === 'hadir' ? 'default' : 'outline'} className={`rounded-xl shrink-0 ${filterStatus === 'hadir' ? 'bg-green-600 text-white' : 'text-green-700'}`} size="sm" onClick={() => setFilterStatus('hadir')}>Hadir</Button>
-            <Button variant={filterStatus === 'telat' ? 'default' : 'outline'} className={`rounded-xl shrink-0 ${filterStatus === 'telat' ? 'bg-yellow-500 text-white' : 'text-yellow-700'}`} size="sm" onClick={() => setFilterStatus('telat')}>Telat</Button>
-            <Button variant={filterStatus === 'alpha' ? 'default' : 'outline'} className={`rounded-xl shrink-0 ${filterStatus === 'alpha' ? 'bg-red-500 text-white' : 'text-red-700'}`} size="sm" onClick={() => setFilterStatus('alpha')}>Absen</Button>
-            <Button variant={filterStatus === 'cuti' ? 'default' : 'outline'} className={`rounded-xl shrink-0 ${filterStatus === 'cuti' ? 'bg-blue-500 text-white' : 'text-blue-700'}`} size="sm" onClick={() => setFilterStatus('cuti')}>Cuti</Button>
+            <Button variant={filterStatus === 'semua' ? 'default' : 'outline'} className={`rounded-xl shrink-0 ${filterStatus === 'semua' ? 'bg-[#113129] text-white' : ''}`} size="sm" onClick={() => setFilterStatus('semua')}>Semua</Button>
+            <Button variant={filterStatus === 'hadir' ? 'default' : 'outline'} className={`rounded-xl shrink-0 ${filterStatus === 'hadir' ? 'bg-[#10B981] text-white' : 'text-[#10B981]'}`} size="sm" onClick={() => setFilterStatus('hadir')}>Hadir</Button>
+            <Button variant={filterStatus === 'telat' ? 'default' : 'outline'} className={`rounded-xl shrink-0 ${filterStatus === 'telat' ? 'bg-[#FACC15] text-[#113129]' : 'text-yellow-600'}`} size="sm" onClick={() => setFilterStatus('telat')}>Telat</Button>
+            <Button variant={filterStatus === 'alpha' ? 'default' : 'outline'} className={`rounded-xl shrink-0 ${filterStatus === 'alpha' ? 'bg-[#EF4444] text-white' : 'text-[#EF4444]'}`} size="sm" onClick={() => setFilterStatus('alpha')}>Absen</Button>
+            <Button variant={filterStatus === 'cuti' ? 'default' : 'outline'} className={`rounded-xl shrink-0 ${filterStatus === 'cuti' ? 'bg-[#113129] text-white' : 'text-[#113129]'}`} size="sm" onClick={() => setFilterStatus('cuti')}>Cuti</Button>
           </div>
         </div>
       </div>
@@ -189,7 +189,7 @@ export default function AdminEmployees() {
               <div className="p-5 flex flex-col gap-4">
                 <div className="flex justify-between items-start gap-4">
                   <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 bg-gradient-to-br from-teal-100 to-teal-200 rounded-full flex items-center justify-center font-bold text-teal-800 text-xl shadow-inner shrink-0">
+                    <div className="w-14 h-14 bg-gradient-to-br from-[#113129]/20 to-[#113129]/30 rounded-full flex items-center justify-center font-bold text-[#113129] text-xl shadow-inner shrink-0">
                       {user.name.charAt(0)}
                     </div>
                     <div>
@@ -200,7 +200,7 @@ export default function AdminEmployees() {
                       <div className="text-sm font-medium text-gray-500 mt-0.5">
                         Divisi: {user.division || '-'} • Usia: {user.age || '-'}
                       </div>
-                      <div className="text-xs text-teal-600 mt-1 flex items-center gap-1.5">
+                      <div className="text-xs text-[#113129] mt-1 flex items-center gap-1.5">
                         <MapPin size={12} /> {userLocation}
                       </div>
                     </div>
@@ -208,9 +208,9 @@ export default function AdminEmployees() {
                   
                   <div className="flex flex-col items-end shrink-0">
                     <div className="hidden sm:flex items-center gap-1.5 text-xs font-bold">
-                      <span className="text-green-600 bg-green-50 px-1.5 py-0.5 rounded-md">H: {stats.hadir}</span>
-                      <span className="text-yellow-600 bg-yellow-50 px-1.5 py-0.5 rounded-md">T: {stats.telat}</span>
-                      <span className="text-red-600 bg-red-50 px-1.5 py-0.5 rounded-md">A: {stats.alpha}</span>
+                      <span className="text-[#10B981] bg-[#10B981]/10 px-1.5 py-0.5 rounded-md">H: {stats.hadir}</span>
+                      <span className="text-yellow-600 bg-yellow-400/10 px-1.5 py-0.5 rounded-md">T: {stats.telat}</span>
+                      <span className="text-[#EF4444] bg-[#EF4444]/10 px-1.5 py-0.5 rounded-md">A: {stats.alpha}</span>
                     </div>
                     {user.status !== 'pending' && (
                       <div className="mt-0 sm:mt-2 text-gray-400">
@@ -224,15 +224,15 @@ export default function AdminEmployees() {
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 py-1.5 px-3 rounded-full w-fit">
                         {!todayAtt && <span className="text-gray-500 text-xs font-medium">Belum Absen Hari Ini</span>}
-                        {todayAtt?.status === 'hadir' && <><CheckCircle2 size={14} className="text-green-600" /><span className="text-green-700 text-xs font-bold">Hadir Hari Ini</span></>}
-                        {todayAtt?.status === 'telat' && <><Clock size={14} className="text-yellow-600" /><span className="text-yellow-700 text-xs font-bold">Telat Hari Ini</span></>}
-                        {todayAtt?.status === 'cuti' && <><Calendar size={14} className="text-blue-600" /><span className="text-blue-700 text-xs font-bold">Cuti Hari Ini</span></>}
-                        {todayAtt?.status === 'alpha' && <><XCircle size={14} className="text-red-600" /><span className="text-red-700 text-xs font-bold">Absen Hari Ini</span></>}
+                        {todayAtt?.status === 'hadir' && <><CheckCircle2 size={14} className="text-[#10B981]" /><span className="text-[#10B981] text-xs font-bold">Hadir Hari Ini</span></>}
+                        {todayAtt?.status === 'telat' && <><Clock size={14} className="text-yellow-500" /><span className="text-yellow-600 text-xs font-bold">Telat Hari Ini</span></>}
+                        {todayAtt?.status === 'cuti' && <><Calendar size={14} className="text-[#113129]" /><span className="text-[#113129] text-xs font-bold">Cuti Hari Ini</span></>}
+                        {todayAtt?.status === 'alpha' && <><XCircle size={14} className="text-[#EF4444]" /><span className="text-[#EF4444] text-xs font-bold">Absen Hari Ini</span></>}
                     </div>
                     <div className="flex sm:hidden items-center gap-1.5 text-xs font-bold mt-1">
-                      <span className="text-green-600 bg-green-50 px-1.5 py-0.5 rounded-md">H: {stats.hadir}</span>
-                      <span className="text-yellow-600 bg-yellow-50 px-1.5 py-0.5 rounded-md">T: {stats.telat}</span>
-                      <span className="text-red-600 bg-red-50 px-1.5 py-0.5 rounded-md">A: {stats.alpha}</span>
+                      <span className="text-[#10B981] bg-[#10B981]/10 px-1.5 py-0.5 rounded-md">H: {stats.hadir}</span>
+                      <span className="text-yellow-600 bg-yellow-400/10 px-1.5 py-0.5 rounded-md">T: {stats.telat}</span>
+                      <span className="text-[#EF4444] bg-[#EF4444]/10 px-1.5 py-0.5 rounded-md">A: {stats.alpha}</span>
                     </div>
                   </div>
                 </div>
@@ -243,22 +243,22 @@ export default function AdminEmployees() {
                 <div className="flex flex-col sm:flex-row items-center justify-end gap-3">
                   {user.status === 'pending' ? (
                     <div className="flex gap-2 w-full sm:w-auto">
-                      <Button size="sm" className="bg-teal-600 hover:bg-teal-500 rounded-xl font-semibold shadow-sm flex-1 sm:flex-none" onClick={(e) => { e.stopPropagation(); setConfirmDialog({ open: true, userId: user.id, type: 'approve' }); }}>
+                      <Button size="sm" className="bg-[#113129] hover:bg-[#1a4a3d] rounded-xl font-semibold shadow-sm flex-1 sm:flex-none" onClick={(e) => { e.stopPropagation(); setConfirmDialog({ open: true, userId: user.id, type: 'approve' }); }}>
                         <Check size={16} className="mr-1.5" /> Setujui
                       </Button>
-                      <Button size="sm" variant="ghost" className="rounded-xl border border-red-100 text-red-600 hover:bg-red-50 hover:text-red-700 font-semibold flex-1 sm:flex-none" onClick={(e) => { e.stopPropagation(); setConfirmDialog({ open: true, userId: user.id, type: 'reject' }); }}>
+                      <Button size="sm" variant="ghost" className="rounded-xl border border-[#EF4444]/20 text-[#EF4444] hover:bg-[#EF4444]/10 hover:text-[#EF4444] font-semibold flex-1 sm:flex-none" onClick={(e) => { e.stopPropagation(); setConfirmDialog({ open: true, userId: user.id, type: 'reject' }); }}>
                         <X size={16} className="mr-1.5" /> Tolak
                       </Button>
                     </div>
                   ) : isActiveCard ? (
                     <div className="flex gap-2 w-full sm:w-auto flex-wrap justify-end">
-                      <Button size="sm" variant="outline" className="rounded-xl h-9 px-3 text-blue-600 hover:text-blue-700 hover:bg-blue-50 font-medium flex-1 sm:flex-none" onClick={(e) => { e.stopPropagation(); setEditAttendanceDialog({ open: true, userId: user.id, status: todayAtt?.status || 'hadir' }); }}>
+                      <Button size="sm" variant="outline" className="rounded-xl h-9 px-3 text-[#113129] hover:text-[#1a4a3d] hover:bg-[#113129]/10 font-medium flex-1 sm:flex-none" onClick={(e) => { e.stopPropagation(); setEditAttendanceDialog({ open: true, userId: user.id, status: todayAtt?.status || 'hadir' }); }}>
                         Absensi <Clock size={16} className="ml-1.5" />
                       </Button>
-                      <Button size="sm" variant="outline" className="rounded-xl h-9 px-3 text-teal-600 hover:text-teal-700 hover:bg-teal-50 font-medium flex-1 sm:flex-none" onClick={(e) => { e.stopPropagation(); setEditAccountDialog({ open: true, user }); }}>
+                      <Button size="sm" variant="outline" className="rounded-xl h-9 px-3 text-yellow-600 hover:text-yellow-700 hover:bg-yellow-400/10 font-medium flex-1 sm:flex-none" onClick={(e) => { e.stopPropagation(); setEditAccountDialog({ open: true, user }); }}>
                         Akun <UserCog size={16} className="ml-1.5" />
                       </Button>
-                      <Button size="sm" variant="outline" className="rounded-xl h-9 w-9 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 shrink-0" title="Hapus Karyawan" onClick={(e) => { e.stopPropagation(); setDeleteDialog({ open: true, userId: user.id }); }}>
+                      <Button size="sm" variant="outline" className="rounded-xl h-9 w-9 p-0 text-[#EF4444] hover:text-[#EF4444] hover:bg-[#EF4444]/10 shrink-0" title="Hapus Karyawan" onClick={(e) => { e.stopPropagation(); setDeleteDialog({ open: true, userId: user.id }); }}>
                         <Trash2 size={16} />
                       </Button>
                     </div>
@@ -316,7 +316,7 @@ export default function AdminEmployees() {
           <DialogFooter className="mt-6 flex gap-3 sm:justify-end">
             <Button variant="outline" className="rounded-xl" onClick={() => setConfirmDialog({ open: false, userId: null, type: null })}>Batal</Button>
             <Button 
-              className={`rounded-xl text-white font-bold ${confirmDialog.type === 'approve' ? 'bg-teal-600 hover:bg-teal-700' : 'bg-red-600 hover:bg-red-700'}`} 
+              className={`rounded-xl text-white font-bold ${confirmDialog.type === 'approve' ? 'bg-[#113129] hover:bg-[#1a4a3d]' : 'bg-[#EF4444] hover:bg-[#dc2626]'}`} 
               onClick={confirmDialog.type === 'approve' ? handleApprove : handleReject}
             >
               {confirmDialog.type === 'approve' ? 'Setujui Karyawan' : 'Tolak Karyawan'}
@@ -329,14 +329,14 @@ export default function AdminEmployees() {
       <Dialog open={deleteDialog.open} onOpenChange={(open) => setDeleteDialog(prev => ({ ...prev, open }))}>
         <DialogContent className="sm:max-w-[425px] rounded-3xl p-6">
           <DialogHeader>
-            <DialogTitle className="text-xl font-bold text-red-600">Hapus Akun Karyawan</DialogTitle>
+            <DialogTitle className="text-xl font-bold text-[#EF4444]">Hapus Akun Karyawan</DialogTitle>
             <DialogDescription className="text-gray-500">
               Apakah Anda yakin ingin menghapus akun ini secara permanen? Data riwayat absensi tidak dapat dikembalikan.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="mt-6 flex gap-3 sm:justify-end">
             <Button variant="outline" className="rounded-xl" onClick={() => setDeleteDialog({ open: false, userId: null })}>Batal</Button>
-            <Button className="rounded-xl text-white font-bold bg-red-600 hover:bg-red-700" onClick={handleDeleteUser}>
+            <Button className="rounded-xl text-white font-bold bg-[#EF4444] hover:bg-[#dc2626]" onClick={handleDeleteUser}>
               Hapus Permanen
             </Button>
           </DialogFooter>
@@ -370,7 +370,7 @@ export default function AdminEmployees() {
           </div>
           <DialogFooter className="mt-6 flex gap-3 sm:justify-end">
             <Button variant="outline" className="rounded-xl" onClick={() => setEditAttendanceDialog({ open: false, userId: null, status: 'hadir' })}>Batal</Button>
-            <Button className="rounded-xl text-white font-bold bg-teal-600 hover:bg-teal-700" onClick={handleSaveAttendance}>
+            <Button className="rounded-xl text-white font-bold bg-[#113129] hover:bg-[#1a4a3d]" onClick={handleSaveAttendance}>
               Simpan Perubahan
             </Button>
           </DialogFooter>
@@ -411,7 +411,7 @@ export default function AdminEmployees() {
           )}
           <DialogFooter className="mt-6 flex gap-3 sm:justify-end">
             <Button variant="outline" className="rounded-xl" onClick={() => setEditAccountDialog({ open: false, user: null })}>Batal</Button>
-            <Button className="rounded-xl text-white font-bold bg-teal-600 hover:bg-teal-700" onClick={handleSaveAccount}>
+            <Button className="rounded-xl text-white font-bold bg-[#113129] hover:bg-[#1a4a3d]" onClick={handleSaveAccount}>
               Simpan Perubahan
             </Button>
           </DialogFooter>

@@ -171,19 +171,19 @@ export default function AdminReports() {
           <Dialog>
             <DialogTrigger>
               <Button variant="outline" className="rounded-xl h-11 px-6 shadow-sm border-gray-200 hover:bg-gray-50 text-gray-700 font-medium w-full md:w-auto">
-                <Activity size={20} className="mr-2 text-teal-600" /> Log Aktivitas
+                <Activity size={20} className="mr-2 text-[#113129]" /> Log Aktivitas
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-[800px] w-[calc(100vw-32px)] rounded-3xl border-gray-100 bg-white shadow-xl p-0 overflow-hidden mx-auto h-[80vh] flex flex-col">
               <DialogHeader className="p-6 pb-2 shrink-0 border-b border-gray-100/50">
                 <DialogTitle className="text-xl font-bold tracking-tight text-gray-900 flex items-center gap-2">
-                  <Activity className="text-teal-600" size={24} /> Log Aktivitas Admin
+                  <Activity className="text-yellow-400" size={24} /> Log Aktivitas Admin
                 </DialogTitle>
                 <div className="flex flex-wrap gap-2 items-center mt-4 pt-2">
-                  <Button variant={logTimeFilter === '1hari' ? 'default' : 'outline'} className={logTimeFilter === '1hari' ? 'bg-teal-950 text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setLogTimeFilter('1hari')}>1 Hari</Button>
-                  <Button variant={logTimeFilter === '7hari' ? 'default' : 'outline'} className={logTimeFilter === '7hari' ? 'bg-teal-950 text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setLogTimeFilter('7hari')}>7 Hari</Button>
-                  <Button variant={logTimeFilter === '1bulan' ? 'default' : 'outline'} className={logTimeFilter === '1bulan' ? 'bg-teal-950 text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setLogTimeFilter('1bulan')}>1 Bulan</Button>
-                  <Button variant={logTimeFilter === 'semua' ? 'default' : 'outline'} className={logTimeFilter === 'semua' ? 'bg-teal-950 text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setLogTimeFilter('semua')}>Semua</Button>
+                  <Button variant={logTimeFilter === '1hari' ? 'default' : 'outline'} className={logTimeFilter === '1hari' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setLogTimeFilter('1hari')}>1 Hari</Button>
+                  <Button variant={logTimeFilter === '7hari' ? 'default' : 'outline'} className={logTimeFilter === '7hari' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setLogTimeFilter('7hari')}>7 Hari</Button>
+                  <Button variant={logTimeFilter === '1bulan' ? 'default' : 'outline'} className={logTimeFilter === '1bulan' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setLogTimeFilter('1bulan')}>1 Bulan</Button>
+                  <Button variant={logTimeFilter === 'semua' ? 'default' : 'outline'} className={logTimeFilter === 'semua' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setLogTimeFilter('semua')}>Semua</Button>
                 </div>
               </DialogHeader>
               <div className="overflow-y-auto flex-1">
@@ -200,14 +200,14 @@ export default function AdminReports() {
                       <TableRow key={log.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                         <TableCell className="font-medium text-gray-600 text-xs pl-6">
                           <div className="flex items-center gap-1.5">
-                            <Clock size={12} className="text-teal-600 shrink-0" />
+                            <Clock size={12} className="text-[#113129] shrink-0" />
                             <span className="whitespace-nowrap">{format(parseISO(log.timestamp), 'dd MMM yy HH:mm', { locale: id })}</span>
                           </div>
                         </TableCell>
                         <TableCell className="font-bold text-gray-900 text-sm">{log.action}</TableCell>
                         <TableCell className="font-medium text-gray-600 pr-6">
                           <div className="flex flex-col">
-                            <span className="flex items-center gap-1 text-teal-700 text-[10px] font-bold bg-teal-50 w-fit px-1.5 py-0.5 rounded mb-0.5 whitespace-nowrap">
+                            <span className="flex items-center gap-1 text-[#113129] text-[10px] font-bold bg-[#113129]/10 w-fit px-1.5 py-0.5 rounded mb-0.5 whitespace-nowrap">
                               <MapPin size={10} /> {log.locationName}
                             </span>
                           </div>
@@ -260,7 +260,7 @@ export default function AdminReports() {
               )}
               
               <div className="p-4 shrink-0 border-t border-gray-100">
-                <Button className="w-full bg-teal-950 hover:bg-teal-900 text-white rounded-xl h-11 font-bold" onClick={() => {
+                <Button className="w-full bg-[#113129] hover:bg-[#1a4a3d] text-white rounded-xl h-11 font-bold" onClick={() => {
                    const headers = ['ID,Waktu,Tindakan,Lokasi'];
                    const csvData = filteredLogs.map(l => `${l.id},${l.timestamp},"${l.action}","${l.locationName}"`);
                    const csvString = headers.concat(csvData).join('\n');
@@ -283,7 +283,7 @@ export default function AdminReports() {
 
           <Dialog open={isExportDialogOpen} onOpenChange={setIsExportDialogOpen}>
             <DialogTrigger>
-              <Button className="rounded-xl h-11 px-6 shadow-md bg-teal-950 hover:bg-teal-900 text-white font-medium w-full md:w-auto">
+              <Button className="rounded-xl h-11 px-6 shadow-md bg-[#113129] hover:bg-[#1a4a3d] text-white font-medium w-full md:w-auto">
                 <Download size={20} className="mr-2" /> Ekspor CSV
               </Button>
             </DialogTrigger>
@@ -307,16 +307,16 @@ export default function AdminReports() {
                 <div className="grid grid-cols-2 gap-3 items-end">
                   <div className="flex flex-col gap-1.5">
                     <span className="text-xs text-gray-500 font-medium">Dari Tanggal</span>
-                    <input type="date" value={exportStartDate} onChange={e => setExportStartDate(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white" />
+                    <input type="date" value={exportStartDate} onChange={e => setExportStartDate(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#113129] bg-white" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <span className="text-xs text-gray-500 font-medium">Sampai Tanggal</span>
-                    <input type="date" value={exportEndDate} onChange={e => setExportEndDate(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white" />
+                    <input type="date" value={exportEndDate} onChange={e => setExportEndDate(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#113129] bg-white" />
                   </div>
                 </div>
               </div>
             </div>
-            <Button onClick={handleExportCSV} className="w-full bg-teal-950 hover:bg-teal-900 text-white rounded-xl h-12 font-bold mt-2">Unduh CSV</Button>
+            <Button onClick={handleExportCSV} className="w-full bg-[#113129] hover:bg-[#1a4a3d] text-white rounded-xl h-12 font-bold mt-2">Unduh CSV</Button>
           </DialogContent>
         </Dialog>
         </div>
@@ -333,7 +333,7 @@ export default function AdminReports() {
                   placeholder="Cari nama karyawan..." 
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-11 pr-4 py-2 bg-white border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all shadow-sm h-10" 
+                  className="w-full pl-11 pr-4 py-2 bg-white border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#113129] transition-all shadow-sm h-10" 
                 />
               </div>
               <div className="w-full md:w-56 relative z-50">
@@ -347,10 +347,10 @@ export default function AdminReports() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2 items-center">
-              <Button variant={timeFilter === '1hari' ? 'default' : 'outline'} className={timeFilter === '1hari' ? 'bg-teal-950 text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setTimeFilter('1hari')}>1 Hari</Button>
-              <Button variant={timeFilter === '7hari' ? 'default' : 'outline'} className={timeFilter === '7hari' ? 'bg-teal-950 text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setTimeFilter('7hari')}>7 Hari</Button>
-              <Button variant={timeFilter === '1bulan' ? 'default' : 'outline'} className={timeFilter === '1bulan' ? 'bg-teal-950 text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setTimeFilter('1bulan')}>1 Bulan</Button>
-              <Button variant={timeFilter === 'semua' ? 'default' : 'outline'} className={timeFilter === 'semua' ? 'bg-teal-950 text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setTimeFilter('semua')}>Semua</Button>
+              <Button variant={timeFilter === '1hari' ? 'default' : 'outline'} className={timeFilter === '1hari' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setTimeFilter('1hari')}>1 Hari</Button>
+              <Button variant={timeFilter === '7hari' ? 'default' : 'outline'} className={timeFilter === '7hari' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setTimeFilter('7hari')}>7 Hari</Button>
+              <Button variant={timeFilter === '1bulan' ? 'default' : 'outline'} className={timeFilter === '1bulan' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setTimeFilter('1bulan')}>1 Bulan</Button>
+              <Button variant={timeFilter === 'semua' ? 'default' : 'outline'} className={timeFilter === 'semua' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setTimeFilter('semua')}>Semua</Button>
             </div>
           </div>
           {/* Card List - tampil di layar kecil/menengah, meniru desain app */}
@@ -368,7 +368,7 @@ export default function AdminReports() {
                           {format(parseISO(report.date), 'dd MMM yyyy', { locale: id })}
                         </span>
                       </div>
-                      <div className={`flex items-center gap-1.5 text-sm font-medium ${isOutside ? 'text-orange-600' : 'text-teal-700'}`}>
+                      <div className={`flex items-center gap-1.5 text-sm font-medium ${isOutside ? 'text-orange-600' : 'text-[#113129]'}`}>
                         <MapPin size={14} className="shrink-0" />
                         <span>{locationName}</span>
                       </div>

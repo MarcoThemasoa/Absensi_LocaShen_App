@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User } from '../types';
 import { mockUsers } from '../lib/mockData';
+import { initLocationCache } from '../lib/locationCache';
 
 interface TodayAttendance {
   date: string; // YYYY-MM-DD
@@ -32,6 +33,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    // Mulai fetch GPS sejak awal — biar halaman kamera absen gak perlu nunggu
+    initLocationCache();
+
     // Check local storage for mock session
     const storedUserId = localStorage.getItem('mockUserId');
     if (storedUserId) {

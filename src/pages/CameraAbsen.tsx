@@ -7,6 +7,7 @@ import { ArrowLeft, CheckCircle2, ScanFace, MapPinned, XCircle, Loader2, Clock, 
 import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 import { mockLocations } from '../lib/mockData';
 import { useAuth } from '../context/AuthContext';
+import { getCachedPosition } from '../lib/locationCache';
 import { CheckInRequiredDialog } from '../components/CheckInRequiredDialog';
 import { toast } from 'sonner';
 
@@ -131,46 +132,55 @@ export default function CameraAbsen() {
   }, [step, gpsLoading]);
 
   useEffect(() => {
-    if (step === 'location') {
-      if ('geolocation' in navigator) {
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            const userLat = position.coords.latitude;
-            const userLng = position.coords.longitude;
-            
-            let isAnyInRange = false;
-            let closestDist = Infinity;
+    if (step !== 'location') return;
 
-            const assignedLoc = mockLocations.find(l => l.id === user?.locationId);
-            if (assignedLoc) {
-              const R = 6371e3;
-              const lat1 = userLat * Math.PI/180;
-              const lat2 = assignedLoc.lat * Math.PI/180;
-              const dLat = (assignedLoc.lat - userLat) * Math.PI/180;
-              const dLng = (assignedLoc.lng - userLng) * Math.PI/180;
-              const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng/2) * Math.sin(dLng/2);
-              const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-              closestDist = R * c;
-              isAnyInRange = closestDist <= assignedLoc.radius;
-            } else {
-              isAnyInRange = false;
-            }
+    const handlePosition = (userLat: number, userLng: number) => {
+      let isAnyInRange = false;
+      let closestDist = Infinity;
 
-            setDistanceInfo(Math.round(closestDist));
-            setInRange(isAnyInRange);
-            setGpsLoading(false);
-          },
-          (error) => {
-            console.error('Geolocation error:', error);
-            setInRange(false);
-            setGpsLoading(false);
-          },
-          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-        );
-      } else {
-        setInRange(false);
-        setGpsLoading(false);
+      const assignedLoc = mockLocations.find(l => l.id === user?.locationId);
+      if (assignedLoc) {
+        const R = 6371e3;
+        const lat1 = userLat * Math.PI / 180;
+        const lat2 = assignedLoc.lat * Math.PI / 180;
+        const dLat = (assignedLoc.lat - userLat) * Math.PI / 180;
+        const dLng = (assignedLoc.lng - userLng) * Math.PI / 180;
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        closestDist = R * c;
+        isAnyInRange = closestDist <= assignedLoc.radius;
       }
+
+      setDistanceInfo(Math.round(closestDist));
+      setInRange(isAnyInRange);
+      setGpsLoading(false);
+    };
+
+    // Cek cache GPS dulu — biar langsung tanpa nunggu
+    const cached = getCachedPosition();
+    if (cached.isReady && cached.position) {
+      handlePosition(cached.position.lat, cached.position.lng);
+      return;
+    }
+
+    // Cache belum siap — fallback ke live GPS
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          handlePosition(position.coords.latitude, position.coords.longitude);
+        },
+        (error) => {
+          console.error('Geolocation error:', error);
+          setInRange(false);
+          setGpsLoading(false);
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+    } else {
+      setInRange(false);
+      setGpsLoading(false);
     }
   }, [step]);
 
@@ -258,9 +268,9 @@ export default function CameraAbsen() {
             className="absolute inset-0 h-full w-full object-cover"
           />
           {/* Overlay mask for face */}
-          <div className="absolute inset-0 border-[40px] md:border-[80px] border-black/60 rounded-[120px] pointer-events-none z-10 transition-all duration-500"></div>
+          <div className="absolute inset-0 border-[16px] md:border-[24px] border-black/60 rounded-[80px] pointer-events-none z-10 transition-all duration-500"></div>
           
-          <div className="absolute bottom-12 left-0 right-0 px-6 text-center z-20">
+          <div className="absolute bottom-20 left-0 right-0 px-6 text-center z-20">
             {step === 'face' && (
               <div className="bg-black/60 p-4 rounded-2xl backdrop-blur-md mb-6 border border-white/10">
                 <ScanFace size={36} className="mx-auto mb-3 text-teal-400" />
@@ -277,7 +287,7 @@ export default function CameraAbsen() {
             {step === 'face' && (
               <Button 
                 size="lg" 
-                className="w-full bg-teal-600 hover:bg-teal-500 rounded-2xl font-bold h-14 text-lg"
+                className="w-full bg-teal-600 hover:bg-teal-500 rounded-2xl font-bold h-16 text-xl"
                 onClick={handleNextStep}
                 disabled={isModelLoading}
               >
