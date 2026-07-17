@@ -353,8 +353,78 @@ export default function AdminReports() {
               <Button variant={timeFilter === 'semua' ? 'default' : 'outline'} className={timeFilter === 'semua' ? 'bg-teal-950 text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setTimeFilter('semua')}>Semua</Button>
             </div>
           </div>
-          
-          <div className="overflow-x-auto px-4 md:px-6 py-0 rounded-b-3xl relative z-10">
+          {/* Card List - tampil di layar kecil/menengah, meniru desain app */}
+          <div className="flex flex-col gap-3 p-4 md:p-6 xl:hidden">
+            {paginatedReports.length > 0 ? paginatedReports.map((report) => {
+              const locationName = mockLocations.find(l => l.id === report.locationId)?.name || '-';
+              const isOutside = locationName.toLowerCase().includes('luar');
+              return (
+                <Dialog key={report.id}>
+                  <DialogTrigger>
+                    <div className="w-full text-left p-4 rounded-2xl border border-gray-100 bg-white shadow-sm hover:shadow-md transition-shadow flex flex-col gap-1.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-bold text-gray-900">{report.userName}</span>
+                        <span className="shrink-0 text-xs font-semibold text-gray-500 bg-gray-100 rounded-full px-3 py-1 whitespace-nowrap">
+                          {format(parseISO(report.date), 'dd MMM yyyy', { locale: id })}
+                        </span>
+                      </div>
+                      <div className={`flex items-center gap-1.5 text-sm font-medium ${isOutside ? 'text-orange-600' : 'text-teal-700'}`}>
+                        <MapPin size={14} className="shrink-0" />
+                        <span>{locationName}</span>
+                      </div>
+                    </div>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-md rounded-3xl border-white/60 bg-white/90 backdrop-blur-2xl shadow-[0_20px_60px_rgb(0,0,0,0.1)] p-6">
+                    <DialogHeader>
+                      <DialogTitle className="text-xl font-bold tracking-tight text-gray-900">{report.userName}</DialogTitle>
+                    </DialogHeader>
+                    <div className="flex flex-col gap-3 mt-2">
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <p className="text-gray-400 font-medium text-xs">Tanggal</p>
+                          <p className="font-bold text-gray-900">{format(parseISO(report.date), 'dd MMM yyyy', { locale: id })}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-400 font-medium text-xs">Status</p>
+                          {report.status === 'hadir' ? (
+                            <span className="inline-flex items-center rounded-lg bg-green-50 px-2.5 py-1 text-xs font-bold uppercase text-green-700 ring-1 ring-inset ring-green-600/20">Hadir</span>
+                          ) : report.status === 'telat' ? (
+                            <span className="inline-flex items-center rounded-lg bg-yellow-50 px-2.5 py-1 text-xs font-bold uppercase text-yellow-700 ring-1 ring-inset ring-yellow-600/20">Telat</span>
+                          ) : report.status === 'cuti' ? (
+                            <span className="inline-flex items-center rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-bold uppercase text-blue-700 ring-1 ring-inset ring-blue-600/20">Cuti</span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-lg bg-red-50 px-2.5 py-1 text-xs font-bold uppercase text-red-700 ring-1 ring-inset ring-red-600/20">Alpha</span>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-gray-400 font-medium text-xs">Jam Masuk</p>
+                          <p className="font-bold text-gray-900">{report.timeIn || '-'}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-400 font-medium text-xs">Jam Keluar</p>
+                          <p className="font-bold text-gray-900">{report.timeOut || '-'}</p>
+                        </div>
+                        <div className="col-span-2">
+                          <p className="text-gray-400 font-medium text-xs">Cabang</p>
+                          <p className="font-bold text-gray-900">{locationName}</p>
+                        </div>
+                      </div>
+                      {report.photoUrl && (
+                        <div className="w-full mt-1 rounded-2xl overflow-hidden shadow-md">
+                          <img src={report.photoUrl} alt="Bukti" className="w-full h-auto object-cover" />
+                        </div>
+                      )}
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              );
+            }) : (
+              <div className="h-32 flex items-center justify-center text-center text-gray-500 font-medium">
+                Tidak ada laporan yang sesuai dengan filter.
+              </div>
+            )}
+          </div>
+          <div className="hidden xl:block overflow-x-auto px-4 md:px-6 py-0 rounded-b-3xl relative z-10">
             <Table className="w-full min-w-[800px]">
               <TableHeader className="bg-gray-50/50 rounded-t-xl">
                 <TableRow className="border-b border-gray-100/50 hover:bg-transparent">

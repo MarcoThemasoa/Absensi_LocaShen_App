@@ -27,7 +27,11 @@ export function GlassNavbar({ leftItems, centerItem, rightItems }: GlassNavbarPr
         {isActive && (
           <motion.span
             layoutId="glass-navbar-active"
-            className="absolute inset-0 rounded-3xl bg-white/30 ring-1 ring-white/40 shadow-[0_20px_120px_-50px_rgba(255,255,255,0.35)] backdrop-blur-xl"
+            className={`absolute rounded-full bg-white/30 ring-1 ring-white/40 shadow-[0_20px_120px_-50px_rgba(255,255,255,0.35)] backdrop-blur-xl ${
+              isCenter
+                ? 'opacity-0'
+                : 'w-16 h-16 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 c'
+            }`}
           />
         )}
         <div
