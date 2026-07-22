@@ -50,9 +50,9 @@ export default function EmployeeLogin() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-200 flex flex-col sm:items-center sm:justify-center sm:py-8">
-      <div className="w-full sm:max-w-[400px] h-[100dvh] sm:h-auto bg-gray-50 flex items-center justify-center p-4 sm:rounded-[2.5rem] sm:shadow-2xl relative overflow-hidden sm:border-[8px] sm:border-gray-900">
-        <Card className="w-full max-w-sm rounded-2xl drop-shadow-sm border-0 bg-white">
+    <div className="min-h-screen bg-gray-200 flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        <Card className="rounded-2xl drop-shadow-sm border-0 bg-white">
           <CardHeader className="text-center space-y-2">
           <div className="mx-auto bg-teal-950 p-3 rounded-full w-14 h-14 flex items-center justify-center mb-2">
             <Fingerprint className="text-yellow-400 w-8 h-8" />

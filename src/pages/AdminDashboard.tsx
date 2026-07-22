@@ -10,6 +10,7 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { cachedQuery, invalidateCache } from '../lib/supabaseCache';
 import { Combobox } from '../components/ui/combobox';
 
 // Fix for default marker icon in leaflet
@@ -41,25 +42,22 @@ export default function AdminDashboard() {
       .select('user_id, status')
       .eq('date', today);
 
-    const { data: allTodayAtt } = await attQuery;
+    const { data: allTodayAtt } = await cachedQuery<any[]>(`dashboard:today:${today}`, () => attQuery);
     let todayAtt = allTodayAtt || [];
 
     // ——— Filter berdasarkan lokasi jika dipilih ———
     let activeEmployeeIds: string[] = [];
     if (selectedLocationId !== 'semua') {
-      const { data: locUsers } = await supabase
-        .from('users')
-        .select('id')
-        .eq('location_id', selectedLocationId);
+      const { data: locUsers } = await cachedQuery<any[]>(`dashboard:locUsers:${selectedLocationId}`, () =>
+        supabase.from('users').select('id').eq('location_id', selectedLocationId)
+      );
       const locUserIds = (locUsers || []).map(u => u.id);
       todayAtt = todayAtt.filter(a => locUserIds.includes(a.user_id));
       activeEmployeeIds = locUserIds;
     } else {
-      const { data: allEmp } = await supabase
-        .from('users')
-        .select('id')
-        .eq('role', 'employee')
-        .eq('status', 'active');
+      const { data: allEmp } = await cachedQuery<any[]>('dashboard:allEmp', () =>
+        supabase.from('users').select('id').eq('role', 'employee').eq('status', 'active')
+      );
       activeEmployeeIds = (allEmp || []).map(u => u.id);
     }
 
@@ -84,11 +82,14 @@ export default function AdminDashboard() {
       days.push({ name: dayNames[d.getDay()], date: format(d, 'yyyy-MM-dd') });
     }
 
-    const { data: chartAtt } = await supabase
-      .from('attendance_records')
-      .select('date, status')
-      .gte('date', days[0].date)
-      .lte('date', days[days.length - 1].date);
+    const { data: chartAtt } = await cachedQuery<any[]>(
+      `dashboard:chart:${days[0].date}:${days[days.length - 1].date}`,
+      () => supabase
+        .from('attendance_records')
+        .select('date, status')
+        .gte('date', days[0].date)
+        .lte('date', days[days.length - 1].date)
+    );
 
     const chartMap = new Map(days.map(d => [d.date, { name: d.name, hadir: 0, telat: 0, alpha: 0 }]));
     for (const r of chartAtt || []) {

@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Clock, History, UserCircle, CheckCircle2, AlertCircle, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Clock, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { format, parseISO } from 'date-fns';

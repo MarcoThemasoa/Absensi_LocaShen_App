@@ -37,9 +37,18 @@ export default function CameraAbsen() {
   const [blinkDetected, setBlinkDetected] = useState(false);
   const [showForgotConfirm, setShowForgotConfirm] = useState(false);
   const [forgotConfirmed, setForgotConfirmed] = useState(false);
+  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const SCHEDULE_END_HOUR = 17; // jam kerja selesai 17:00
-  const GRACE_END_HOUR = 20;    // grace period sampe 20:00 (3 jam setelah jadwal)
+  // Cleanup timeouts + RAF on unmount / bfcache
+  useEffect(() => {
+    return () => {
+      if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+      if (requestRef.current !== null) cancelAnimationFrame(requestRef.current);
+    };
+  }, []);
+
+  const SCHEDULE_END_HOUR = 17;
+  const GRACE_END_HOUR = 20;
   const GRACE_END_TOTAL_MIN = GRACE_END_HOUR * 60;
 
   // Check if trying to check-out without check-in
@@ -112,9 +121,9 @@ export default function CameraAbsen() {
                setBlinkDetected(true);
                const imageSrc = webcamRef.current.getScreenshot();
                if (imageSrc) setPhoto(imageSrc);
-               
+
                // Small delay before moving to success
-               setTimeout(() => setStep('success'), 500);
+               successTimeoutRef.current = setTimeout(() => setStep('success'), 500);
                return; 
             }
           }
@@ -209,7 +218,7 @@ export default function CameraAbsen() {
       setInRange(false);
       setGpsLoading(false);
     }
-  }, [step]);
+  }, [step, locations, user?.locationId]);
 
   const handleNextStep = () => {
     if (step === 'location') setStep('face');
@@ -226,11 +235,11 @@ export default function CameraAbsen() {
       if (imageSrc) {
         setPhoto(imageSrc);
       }
-      setTimeout(() => setStep('success'), 1000); 
+      successTimeoutRef.current = setTimeout(() => setStep('success'), 1000); 
     }
   };
 
-  const handleSuccessConfirm = (isForgot?: boolean) => {
+  const handleSuccessConfirm = async (isForgot?: boolean) => {
     const now = new Date();
     const hours = String(now.getHours()).padStart(2, '0');
     const minutes = String(now.getMinutes()).padStart(2, '0');
@@ -242,18 +251,83 @@ export default function CameraAbsen() {
       recordCheckOut(timeString, isForgot ?? forgotConfirmed);
       toast.success('Absen keluar tercatat');
     } else {
-      // Check if late (after 08:00)
       const hourNum = now.getHours();
       const minNum = now.getMinutes();
       const isLateTime = hourNum > 8 || (hourNum === 8 && minNum > 0);
       setIsLate(isLateTime);
       recordCheckIn(timeString);
-
       if (isLateTime) {
         toast.warning('Perhatian: Anda telah absen masuk dengan terlambat!');
       } else {
         toast.success('Absen masuk tercatat tepat waktu');
       }
+    }
+
+    // Simpan ke Supabase (tunggu sampai selesai)
+    await doSupabaseSave(timeString, isForgot ?? forgotConfirmed);
+  };
+
+  /** Simpan data absen ke Supabase */
+  const doSupabaseSave = async (timeStr: string, isForgot: boolean) => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      if (isCheckOut) {
+        const updateData: Record<string, any> = { time_out: timeStr };
+        if (isForgot) {
+          updateData.is_forgot_clock_out = true;
+        }
+        console.log('[doSupabaseSave] Mencoba UPDATE attendance_records:', { userId: user?.id, date: today, updateData });
+        const { data: updatedData, error } = await supabase
+          .from('attendance_records')
+          .update(updateData)
+          .eq('user_id', user?.id)
+          .eq('date', today)
+          .select('id, user_id, date, time_out, is_forgot_clock_out');
+        console.log('[doSupabaseSave] Hasil UPDATE:', { updatedData, error });
+        if (error) {
+          console.error('[doSupabaseSave] Error Supabase:', error);
+          toast.error('Gagal menyimpan absen keluar: ' + error.message);
+          return;
+        }
+        if (!updatedData || updatedData.length === 0) {
+          console.warn('[doSupabaseSave] Tidak ada record yang terupdate!');
+          toast.error('Data absen masuk tidak ditemukan. Mungkin RLS memblokir.');
+          return;
+        }
+        console.log('[doSupabaseSave] Berhasil update', updatedData.length, 'record');
+        clearTodayAttendance();
+      } else if (user?.id) {
+        const now = new Date();
+        const hourNum = now.getHours();
+        const minNum = now.getMinutes();
+        const isLateTime = hourNum > 8 || (hourNum === 8 && minNum > 0);
+        console.log('[doSupabaseSave] Mencoba INSERT attendance_records:', { userId: user.id, date: today, time_in: timeStr });
+        const { data: insertedData, error } = await supabase
+          .from('attendance_records')
+          .insert({
+            user_id: user.id,
+            date: today,
+            time_in: timeStr,
+            status: isLateTime ? 'telat' : 'hadir',
+            location_lat: userLat,
+            location_lng: userLng,
+            photo_url: photo,
+          })
+          .select('id, user_id, date, time_in, status');
+        console.log('[doSupabaseSave] Hasil INSERT:', { insertedData, error });
+        if (error) {
+          console.error('Gagal insert absen masuk:', error);
+          toast.error('Gagal menyimpan absen masuk ke database: ' + error.message);
+        } else if (!insertedData || insertedData.length === 0) {
+          console.warn('[doSupabaseSave] INSERT tidak mengembalikan data! Mungkin RLS memblokir.');
+          toast.error('Absen masuk gagal disimpan. Cek RLS policy Supabase.');
+        } else {
+          console.log('[doSupabaseSave] Berhasil insert', insertedData.length, 'record');
+        }
+      }
+    } catch (e) {
+      console.error('Gagal simpan absen ke database:', e);
+      toast.error('Gagal terhubung ke database');
     }
   };
 
@@ -302,8 +376,8 @@ export default function CameraAbsen() {
   }
 
   return (
-    <div className="absolute inset-0 bg-black text-white flex flex-col z-50 overflow-hidden">
-      <div className="absolute top-0 left-0 right-0 p-4 z-20 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent pt-8 pb-12">
+    <div className="relative bg-black text-white flex flex-col h-full w-full overflow-hidden">
+      <div className="shrink-0 p-4 z-20 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent pt-8 pb-12">
         <button onClick={() => navigate(-1)} className="p-2 rounded-full bg-white/20 backdrop-blur-md">
           <ArrowLeft size={24} />
         </button>
@@ -321,18 +395,28 @@ export default function CameraAbsen() {
             videoConstraints={videoConstraints}
             className="absolute inset-0 h-full w-full object-cover"
           />
-          {/* Overlay mask for face */}
-          <div className="absolute inset-0 border-[16px] md:border-[24px] border-black/60 rounded-[80px] pointer-events-none z-10 transition-all duration-500"></div>
+          {/* Face guide overlay — cutout oval di tengah */}
+          <div className="absolute inset-0 pointer-events-none z-10" aria-hidden="true">
+            <div className="absolute inset-0 bg-black/60" />
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 aspect-[3/4] w-[65%] max-w-[280px] rounded-[50%] bg-transparent border-[3px] border-teal-300/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.6)]"></div>
+            {/* Corner guides */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 aspect-[3/4] w-[65%] max-w-[280px]">
+              <div className="absolute top-0 left-0 w-8 h-8 border-t-2 border-l-2 border-teal-300/60 rounded-tl-lg"></div>
+              <div className="absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-teal-300/60 rounded-tr-lg"></div>
+              <div className="absolute bottom-0 left-0 w-8 h-8 border-b-2 border-l-2 border-teal-300/60 rounded-bl-lg"></div>
+              <div className="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-teal-300/60 rounded-br-lg"></div>
+            </div>
+          </div>
           
-          <div className="absolute bottom-20 left-0 right-0 px-6 text-center z-20">
+            <div className="absolute bottom-24 left-0 right-0 px-6 text-center z-20">
             {step === 'face' && (
-              <div className="bg-black/60 p-4 rounded-2xl backdrop-blur-md mb-6 border border-white/10">
+              <div className="bg-black/30 p-4 rounded-2xl backdrop-blur-md mb-6 border border-white/10">
                 <ScanFace size={36} className="mx-auto mb-3 text-teal-400" />
                 <p className="font-medium">Posisikan wajah Anda di dalam bingkai</p>
               </div>
             )}
             {step === 'liveness' && (
-              <div className="bg-black/60 p-4 rounded-2xl backdrop-blur-md mb-6 animate-pulse border border-yellow-500/30">
+              <div className="bg-black/30 p-4 rounded-2xl backdrop-blur-md mb-6 animate-pulse border border-yellow-500/30">
                 <p className="font-bold text-yellow-400 text-xl tracking-wide">Kedipkan Mata Anda</p>
                 <p className="text-sm mt-2 text-gray-300">Sistem sedang mendeteksi liveness...</p>
               </div>
@@ -355,7 +439,7 @@ export default function CameraAbsen() {
       )}
 
       {step === 'location' && (
-        <div className="flex-1 bg-slate-50 text-gray-900 p-6 flex flex-col justify-center items-center h-full absolute inset-0 z-30">
+        <div className="flex-1 bg-slate-50 text-gray-900 p-6 flex flex-col justify-center items-center h-full w-full">
           <Card className="w-full max-w-sm rounded-[32px] drop-shadow-2xl shadow-[0_20px_50px_rgb(0,0,0,0.1)] border-0 text-center py-10 bg-white/90 backdrop-blur-2xl">
             <CardContent>
               {gpsLoading ? (
@@ -385,6 +469,19 @@ export default function CameraAbsen() {
                   </div>
                   <h3 className="font-bold text-xl mb-2">Lokasi Valid</h3>
                   <p className="text-gray-500 text-sm mb-8">{`Anda berada di radius ${locations.find(l => l.id === user?.locationId)?.name || '-'}`}</p>
+                  {todayAttendance?.checkInTime && (
+                    <div className="flex items-center justify-center gap-5 mb-6 bg-teal-50/60 rounded-2xl py-3 px-5 w-full border border-teal-100/50">
+                      <div className="text-center">
+                        <p className="text-gray-400 text-xs font-medium uppercase tracking-wide">Masuk</p>
+                        <p className="text-lg font-bold text-teal-700">{todayAttendance.checkInTime.slice(0, 5)}</p>
+                      </div>
+                      <div className="text-gray-300 text-xl font-light">—</div>
+                      <div className="text-center">
+                        <p className="text-gray-400 text-xs font-medium uppercase tracking-wide">Keluar</p>
+                        <p className="text-lg font-bold text-teal-700">{todayAttendance.checkOutTime ? todayAttendance.checkOutTime.slice(0, 5) : '— : —'}</p>
+                      </div>
+                    </div>
+                  )}
                   <Button onClick={handleNextStep} className="w-full h-14 bg-teal-950 hover:bg-teal-900 rounded-2xl text-lg font-bold">Lanjut ke Kamera</Button>
                 </div>
               ) : (
@@ -425,20 +522,22 @@ export default function CameraAbsen() {
             <Button
               variant="outline"
               className="rounded-xl"
-              onClick={() => {
+              onClick={async () => {
                 setForgotConfirmed(false);
                 setShowForgotConfirm(false);
-                handleSuccessConfirm(false);
+                await handleSuccessConfirm(false);
+                navigate('/dashboard');
               }}
             >
               Tidak (Saya Lembur)
             </Button>
             <Button
               className="rounded-xl bg-yellow-600 hover:bg-yellow-700 text-white font-bold"
-              onClick={() => {
+              onClick={async () => {
                 setForgotConfirmed(true);
                 setShowForgotConfirm(false);
-                handleSuccessConfirm(true);
+                await handleSuccessConfirm(true);
+                navigate('/dashboard');
               }}
             >
               Ya, Saya Lupa
@@ -448,7 +547,7 @@ export default function CameraAbsen() {
       </Dialog>
 
       {step === 'success' && (
-        <div className="flex-1 bg-gradient-to-br from-teal-900 to-teal-950 text-white p-6 flex flex-col justify-center items-center absolute inset-0 z-40">
+        <div className="flex-1 bg-gradient-to-br from-teal-900 to-teal-950 text-white p-6 flex flex-col justify-center items-center w-full h-full">
           <div className="w-28 h-28 bg-green-500 rounded-full flex items-center justify-center mb-8 animate-bounce shadow-[0_0_40px_rgba(34,197,94,0.4)]">
             <CheckCircle2 size={56} className="text-white" />
           </div>
@@ -485,10 +584,6 @@ export default function CameraAbsen() {
             className="w-full max-w-sm h-14 bg-yellow-400 hover:bg-yellow-500 text-teal-950 font-bold rounded-2xl text-lg shadow-xl"
             onClick={async () => {
               const now = new Date();
-              const hrs = String(now.getHours()).padStart(2, '0');
-              const mins = String(now.getMinutes()).padStart(2, '0');
-              const secs = String(now.getSeconds()).padStart(2, '0');
-              const timeStr = `${hrs}:${mins}:${secs}`;
 
               // Grace period check: jika check-out setelah GRACE_END_HOUR → tanya konfirmasi
               const totalMin = now.getHours() * 60 + now.getMinutes();
@@ -497,42 +592,7 @@ export default function CameraAbsen() {
                 return;
               }
 
-              handleSuccessConfirm();
-
-              // Simpan ke Supabase
-              try {
-                const today = now.toISOString().split('T')[0];
-                if (isCheckOut) {
-                  const updateData: Record<string, any> = { time_out: timeStr };
-                  if (forgotConfirmed) {
-                    updateData.is_forgot_clock_out = true;
-                  }
-                  await supabase
-                    .from('attendance_records')
-                    .update(updateData)
-                    .eq('user_id', user?.id)
-                    .eq('date', today);
-                  clearTodayAttendance();
-                } else if (user?.id) {
-                  const hourNum = now.getHours();
-                  const minNum = now.getMinutes();
-                  const isLateTime = hourNum > 8 || (hourNum === 8 && minNum > 0);
-                  await supabase
-                    .from('attendance_records')
-                    .insert({
-                      user_id: user.id,
-                      date: today,
-                      time_in: timeStr,
-                      status: isLateTime ? 'telat' : 'hadir',
-                      location_lat: userLat,
-                      location_lng: userLng,
-                      photo_url: photo,
-                    });
-                }
-              } catch (e) {
-                console.error('Gagal simpan absen ke database:', e);
-              }
-
+              await handleSuccessConfirm();
               navigate('/dashboard');
             }}
           >

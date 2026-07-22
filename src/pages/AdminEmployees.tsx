@@ -7,6 +7,7 @@ import { Input } from '../components/ui/input';
 
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { cachedQuery, invalidateCache } from '../lib/supabaseCache';
 import { Check, X, Edit, Trash2, Clock, UserCog, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, MapPin, CheckCircle2, XCircle, Calendar } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
@@ -32,18 +33,17 @@ export default function AdminEmployees() {
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const itemsPerPage = 5;
 
-  // Fetch users & attendance from Supabase (no mock fallback)
+  // Fetch users & attendance from Supabase (cached)
   useEffect(() => {
     async function fetchAll() {
       setLoading(true);
-      const { data: supabaseUsers } = await supabase
-        .from('users')
-        .select('*')
-        .eq('role', 'employee');
+      const { data: supabaseUsers } = await cachedQuery<any[]>('employees:users', () =>
+        supabase.from('users').select('*').eq('role', 'employee')
+      );
       
-      const { data: supabaseAtt } = await supabase
-        .from('attendance_records')
-        .select('*');
+      const { data: supabaseAtt } = await cachedQuery<any[]>('employees:attendance', () =>
+        supabase.from('attendance_records').select('*').limit(1000)
+      );
 
       if (supabaseUsers) {
         setUsers(supabaseUsers.map((u: any) => ({
@@ -208,6 +208,7 @@ export default function AdminEmployees() {
       
       // Update state lokal hanya jika Supabase sukses
       setUsers(users.map(u => u.id === updatedUser.id ? updatedUser : u));
+      invalidateCache('employees:'); // refresh cache
       toast.success('Data akun berhasil disimpan');
       setEditAccountDialog({ open: false, user: null });
     }

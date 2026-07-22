@@ -5,6 +5,7 @@ import { Button } from '../components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '../components/ui/dialog';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { cachedQuery, invalidateCache } from '../lib/supabaseCache';
 import { Download, Search, Maximize2, ChevronLeft, ChevronRight, Activity, Clock, MapPin } from 'lucide-react';
 import { format, parseISO, subDays, isAfter, startOfDay } from 'date-fns';
 import { id } from 'date-fns/locale';
@@ -39,13 +40,19 @@ export default function AdminReports() {
   const [logCurrentPage, setLogCurrentPage] = useState(1);
   const logsPerPage = 15;
 
-  // Fetch attendance & logs from Supabase
+  // Fetch attendance & logs from Supabase (cached)
   useEffect(() => {
     async function fetchReports() {
       const [attResult, userResult, logResult] = await Promise.all([
-        supabase.from('attendance_records').select('*').order('date', { ascending: false }),
-        supabase.from('users').select('*').eq('role', 'employee'),
-        supabase.from('admin_activity_logs').select('*').order('action_timestamp', { ascending: false }),
+        cachedQuery<any[]>('reports:attendance', () =>
+          supabase.from('attendance_records').select('*').order('date', { ascending: false }).limit(500)
+        ),
+        cachedQuery<any[]>('reports:users', () =>
+          supabase.from('users').select('*').eq('role', 'employee')
+        ),
+        cachedQuery<any[]>('reports:logs', () =>
+          supabase.from('admin_activity_logs').select('*').order('action_timestamp', { ascending: false }).limit(500)
+        ),
       ]);
 
       const userData = userResult.data || [];

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -20,7 +20,14 @@ export default function EmployeeRegister() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const registerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    return () => {
+      if (registerTimeoutRef.current) clearTimeout(registerTimeoutRef.current);
+    };
+  }, []);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,8 +59,7 @@ export default function EmployeeRegister() {
 
     setValidationErrors([]);
     setLoading(true);
-    // Simulate API call
-    setTimeout(() => {
+    registerTimeoutRef.current = setTimeout(() => {
       setLoading(false);
       toast.success('Pendaftaran berhasil, menunggu persetujuan Admin.');
       navigate('/auth/login');
@@ -61,9 +67,9 @@ export default function EmployeeRegister() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-200 flex flex-col sm:items-center sm:justify-center sm:py-8">
-      <div className="w-full sm:max-w-[450px] h-[100dvh] sm:h-auto bg-gray-50 flex items-center justify-center p-4 sm:rounded-[2.5rem] sm:shadow-2xl relative overflow-hidden sm:border-[8px] sm:border-gray-900">
-        <Card className="w-full max-w-sm rounded-2xl drop-shadow-sm border-0 bg-white">
+    <div className="min-h-screen bg-gray-200 flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        <Card className="rounded-2xl drop-shadow-sm border-0 bg-white">
           <CardHeader className="text-center space-y-2">
           <div className="mx-auto bg-teal-950 p-3 rounded-full w-14 h-14 flex items-center justify-center mb-2">
             <UserPlus className="text-yellow-400 w-8 h-8" />
@@ -71,7 +77,7 @@ export default function EmployeeRegister() {
           <CardTitle className="text-2xl font-bold">Daftar Akun Baru</CardTitle>
           <CardDescription>Pendaftaran butuh persetujuan admin</CardDescription>
         </CardHeader>
-        <CardContent className="max-h-[calc(100dvh-200px)] sm:max-h-none overflow-y-auto sm:overflow-y-visible">
+        <CardContent>
           {validationErrors.length > 0 && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg space-y-1">
               {validationErrors.map((error, idx) => (

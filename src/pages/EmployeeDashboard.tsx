@@ -42,7 +42,14 @@ export default function EmployeeDashboard() {
     const timer = setInterval(() => {
       setTime(new Date());
     }, 1000);
-    return () => clearInterval(timer);
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) setTime(new Date());
+    };
+    window.addEventListener('pageshow', onPageShow);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('pageshow', onPageShow);
+    };
   }, []);
 
   // Calculate elapsed working time (background-safe via checkInTimestamp)
@@ -72,7 +79,14 @@ export default function EmployeeDashboard() {
 
     tick(); // Setel segera tanpa nunggu 1 detik
     const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) tick();
+    };
+    window.addEventListener('pageshow', onPageShow);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('pageshow', onPageShow);
+    };
   }, [todayAttendance?.checkInTime, todayAttendance?.checkInTimestamp, todayAttendance?.checkOutTime]);
 
   return (

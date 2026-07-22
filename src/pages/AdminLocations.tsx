@@ -4,6 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Button } from '../components/ui/button';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { cachedQuery, invalidateCache } from '../lib/supabaseCache';
 import { AttendanceRecord, User } from '../types';
 import { MapPin, Plus, Users, ChevronRight } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '../components/ui/dialog';
@@ -103,10 +104,14 @@ export default function AdminLocations() {
   // 🔄 Re-fetch: manual refresh atau saat authLocations / refreshKey berubah
   const fetchEmployeesAndAttendance = useCallback(async () => {
     try {
-      // Fetch attendance + users in parallel
+      // Fetch attendance + users in parallel (cached)
       const [attResult, userResult] = await Promise.all([
-        supabase.from('attendance_records').select('*').order('date', { ascending: false }),
-        supabase.from('users').select('*').eq('role', 'employee'),
+        cachedQuery<any[]>('locations:attendance', () =>
+          supabase.from('attendance_records').select('*').order('date', { ascending: false })
+        ),
+        cachedQuery<any[]>('locations:users', () =>
+          supabase.from('users').select('*').eq('role', 'employee')
+        ),
       ]);
 
       if (userResult.error) {
@@ -260,6 +265,7 @@ export default function AdminLocations() {
           lng: inserted.lng,
           radius: inserted.radius,
         }]);
+        invalidateCache('locations:'); // refresh cache lokasi
         // Refresh authLocations agar konsisten antar tab
         refreshLocations();
         // Langsung pilih lokasi yang baru dibuat
@@ -478,6 +484,7 @@ export default function AdminLocations() {
                       lat: parseFloat(editForm.lat), lng: parseFloat(editForm.lng),
                       radius: parseInt(editForm.radius) || 50,
                     } : l));
+                    invalidateCache('locations:'); // refresh cache lokasi
                     setEditDialogOpen(false);
                   } catch (e) { console.error('Gagal update lokasi:', e); alert('Gagal menyimpan perubahan.'); }
                 }} disabled={!editForm.name || !editForm.address} className="w-full bg-[#113129] hover:bg-[#1a4a3d] text-white rounded-xl h-11 font-bold disabled:opacity-50 disabled:cursor-not-allowed">Simpan Perubahan</Button>
@@ -495,57 +502,59 @@ export default function AdminLocations() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="md:col-span-2 space-y-6">
-          {selectedLocation && locationDetails && (
+      <div className="flex flex-col gap-6">
+        {selectedLocation && locationDetails && (
+          <>
             <Card className="rounded-3xl border border-teal-100 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
-              <CardHeader className="border-b border-[#113129]/10 px-8 pt-6 pb-1">
-                <CardTitle className="text-lg font-bold text-[#113129] flex items-center justify-between gap-2">
-                  <span className="mr-4">Detail Karyawan: {selectedLocation.name}</span>
-                  <Users size={28} className="text-[#113129] shrink-0" />
-                </CardTitle>
-                <Button
-                  variant="outline"
-                  size="default"
-                  className="rounded-xl border-[#113129]/20 text-[#113129] hover:bg-[#113129]/5 mt-4"
-                  onClick={() => {
-                    setEditForm({
-                      name: selectedLocation.name,
-                      address: selectedLocation.address || '',
-                      lat: String(selectedLocation.lat),
-                      lng: String(selectedLocation.lng),
-                      radius: String(selectedLocation.radius),
-                    });
-                    setEditSearchQuery('');
-                    setEditSearchResults([]);
-                    setEditSelectedSearchIdx(null);
-                    setEditDialogOpen(true);
-                  }}
-                >
-                  Edit Lokasi
-                </Button>
+              <CardHeader className="border-b border-[#113129]/10 px-6 sm:px-8 pt-6 pb-1">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <CardTitle className="text-lg font-bold text-[#113129] flex items-center gap-2">
+                    <Users size={24} className="text-[#113129] shrink-0" />
+                    <span>Detail Karyawan: {selectedLocation.name}</span>
+                  </CardTitle>
+                  <Button
+                    variant="outline"
+                    size="default"
+                    className="rounded-xl border-[#113129]/20 text-[#113129] hover:bg-[#113129]/5 shrink-0"
+                    onClick={() => {
+                      setEditForm({
+                        name: selectedLocation.name,
+                        address: selectedLocation.address || '',
+                        lat: String(selectedLocation.lat),
+                        lng: String(selectedLocation.lng),
+                        radius: String(selectedLocation.radius),
+                      });
+                      setEditSearchQuery('');
+                      setEditSearchResults([]);
+                      setEditSelectedSearchIdx(null);
+                      setEditDialogOpen(true);
+                    }}
+                  >
+                    Edit Lokasi
+                  </Button>
+                </div>
               </CardHeader>
-              <CardContent className="pt-1 px-8 pb-8">
-                <div className="grid grid-cols-5 gap-3 mb-6">
-                  <div className="bg-gray-50 rounded-xl p-5 flex flex-col items-center justify-center text-center border border-gray-100">
-                    <p className="text-sm font-bold text-gray-500 mb-1">Total</p>
-                    <p className="text-2xl font-black text-gray-900">{locationDetails.totalEmployees}</p>
+              <CardContent className="pt-1 px-6 sm:px-8 pb-8">
+                <div className="grid grid-cols-5 gap-2 sm:gap-3 mb-6">
+                  <div className="bg-gray-50 rounded-xl p-3 sm:p-5 flex flex-col items-center justify-center text-center border border-gray-100">
+                    <p className="text-xs sm:text-sm font-bold text-gray-500 mb-1">Total</p>
+                    <p className="text-lg sm:text-2xl font-black text-gray-900">{locationDetails.totalEmployees}</p>
                   </div>
-                  <div className="bg-green-50 rounded-xl p-5 flex flex-col items-center justify-center text-center border border-green-100">
-                    <p className="text-sm font-bold text-green-700 mb-1">Hadir</p>
-                    <p className="text-2xl font-black text-green-700">{locationDetails.hadir}</p>
+                  <div className="bg-green-50 rounded-xl p-3 sm:p-5 flex flex-col items-center justify-center text-center border border-green-100">
+                    <p className="text-xs sm:text-sm font-bold text-green-700 mb-1">Hadir</p>
+                    <p className="text-lg sm:text-2xl font-black text-green-700">{locationDetails.hadir}</p>
                   </div>
-                  <div className="bg-yellow-50 rounded-xl p-5 flex flex-col items-center justify-center text-center border border-yellow-100">
-                    <p className="text-sm font-bold text-yellow-700 mb-1">Telat</p>
-                    <p className="text-2xl font-black text-yellow-700">{locationDetails.telat}</p>
+                  <div className="bg-yellow-50 rounded-xl p-3 sm:p-5 flex flex-col items-center justify-center text-center border border-yellow-100">
+                    <p className="text-xs sm:text-sm font-bold text-yellow-700 mb-1">Telat</p>
+                    <p className="text-lg sm:text-2xl font-black text-yellow-700">{locationDetails.telat}</p>
                   </div>
-                  <div className="bg-blue-50 rounded-xl p-5 flex flex-col items-center justify-center text-center border border-blue-100">
-                    <p className="text-sm font-bold text-blue-700 mb-1">Cuti</p>
-                    <p className="text-2xl font-black text-blue-700">{locationDetails.cuti}</p>
+                  <div className="bg-blue-50 rounded-xl p-3 sm:p-5 flex flex-col items-center justify-center text-center border border-blue-100">
+                    <p className="text-xs sm:text-sm font-bold text-blue-700 mb-1">Cuti</p>
+                    <p className="text-lg sm:text-2xl font-black text-blue-700">{locationDetails.cuti}</p>
                   </div>
-                  <div className="bg-red-50 rounded-xl p-5 flex flex-col items-center justify-center text-center border border-red-100">
-                    <p className="text-sm font-bold text-red-700 mb-1">Absen</p>
-                    <p className="text-2xl font-black text-red-700">{locationDetails.absen}</p>
+                  <div className="bg-red-50 rounded-xl p-3 sm:p-5 flex flex-col items-center justify-center text-center border border-red-100">
+                    <p className="text-xs sm:text-sm font-bold text-red-700 mb-1">Absen</p>
+                    <p className="text-lg sm:text-2xl font-black text-red-700">{locationDetails.absen}</p>
                   </div>
                 </div>
 
@@ -610,31 +619,38 @@ export default function AdminLocations() {
                 )}
               </CardContent>
             </Card>
-          )}
-        </div>
-        <div className="md:col-span-1">
-          <Card className="rounded-3xl border border-white/60 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-[500px] md:h-full min-h-[500px] flex flex-col items-center justify-center p-4 sticky top-24">
-            <div className="flex-1 w-full rounded-2xl overflow-hidden border border-gray-200 relative">
-              <MapContainer center={selectedLocation ? [selectedLocation.lat, selectedLocation.lng] : [defaultCenter[0], defaultCenter[1]]} zoom={13} style={{ height: '100%', width: '100%', zIndex: 0 }}>
-                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OSM' />
-                <MapUpdater center={selectedLocation ? [selectedLocation.lat, selectedLocation.lng] : [defaultCenter[0], defaultCenter[1]]} />
-                {locations.map(loc => (
-                  <React.Fragment key={loc.id}>
-                    <Marker position={[loc.lat, loc.lng]} eventHandlers={{
-                      click: () => setSelectedLocationId(loc.id)
-                    }}>
-                      <Popup>
-                        <div className="font-bold">{loc.name}</div>
-                        <div className="text-xs text-gray-500">{loc.address}</div>
-                      </Popup>
-                    </Marker>
-                    <Circle center={[loc.lat, loc.lng]} radius={loc.radius} pathOptions={{ color: selectedLocationId === loc.id ? '#113129' : '#94a3b8', fillColor: selectedLocationId === loc.id ? '#113129' : '#94a3b8' }} />
-                  </React.Fragment>
-                ))}
-              </MapContainer>
-            </div>
-          </Card>
-        </div>
+
+            <Card className="rounded-3xl border border-white/60 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+              <CardHeader className="border-b border-[#113129]/10 px-6 sm:px-8 pt-6 pb-1">
+                <CardTitle className="text-lg font-bold text-[#113129] flex items-center gap-2">
+                  <MapPin size={24} className="text-[#113129] shrink-0" />
+                  <span>Peta Lokasi</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-6 sm:px-8 pb-8 pt-4">
+                <div className="w-full h-[400px] md:h-[500px] rounded-2xl overflow-hidden border border-gray-200 relative">
+                  <MapContainer center={selectedLocation ? [selectedLocation.lat, selectedLocation.lng] : [defaultCenter[0], defaultCenter[1]]} zoom={13} style={{ height: '100%', width: '100%', zIndex: 0 }}>
+                    <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OSM' />
+                    <MapUpdater center={selectedLocation ? [selectedLocation.lat, selectedLocation.lng] : [defaultCenter[0], defaultCenter[1]]} />
+                    {locations.map(loc => (
+                      <React.Fragment key={loc.id}>
+                        <Marker position={[loc.lat, loc.lng]} eventHandlers={{
+                          click: () => setSelectedLocationId(loc.id)
+                        }}>
+                          <Popup>
+                            <div className="font-bold">{loc.name}</div>
+                            <div className="text-xs text-gray-500">{loc.address}</div>
+                          </Popup>
+                        </Marker>
+                        <Circle center={[loc.lat, loc.lng]} radius={loc.radius} pathOptions={{ color: selectedLocationId === loc.id ? '#113129' : '#94a3b8', fillColor: selectedLocationId === loc.id ? '#113129' : '#94a3b8' }} />
+                      </React.Fragment>
+                    ))}
+                  </MapContainer>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
     </div>
   );
