@@ -3,13 +3,13 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
-import { Clock, MapPin, History, UserCircle, Play, Square, ChevronRight, ScanFace, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { MapPin, ChevronRight, ScanFace, CheckCircle2, AlertCircle, Loader2, Clock, X } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { id } from 'date-fns/locale';
-import { mockAttendance, mockLocations } from '../lib/mockData';
+import { supabase } from '../lib/supabase';
 
 export default function EmployeeDashboard() {
-  const { user, todayAttendance } = useAuth();
+  const { user, todayAttendance, locations, yesterdayForgotClockOut, dismissYesterdayAlert } = useAuth();
   const navigate = useNavigate();
   const [time, setTime] = useState(new Date());
   const [elapsedTime, setElapsedTime] = useState('00:00:00');
@@ -17,10 +17,25 @@ export default function EmployeeDashboard() {
   const todayStr = format(new Date(), 'yyyy-MM-dd');
   const isTodayAttendance = todayAttendance?.date === todayStr;
 
-  const myRecentRecords = mockAttendance
-    .filter(r => r.userId === user?.id)
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 2);
+  // Fetch recent records from Supabase
+  const [myRecentRecords, setMyRecentRecords] = useState<any[]>([]);
+  useEffect(() => {
+    if (!user?.id) return;
+    supabase
+      .from('attendance_records')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('date', { ascending: false })
+      .limit(2)
+      .then(({ data }) => {
+        if (data) setMyRecentRecords(data.map((a: any) => ({
+          id: a.id, userId: a.user_id, userName: a.user_name,
+          date: a.date, timeIn: a.time_in, timeOut: a.time_out,
+          status: a.status, locationId: a.location_id, photoUrl: a.photo_url,
+          is_forgot_clock_out: a.is_forgot_clock_out,
+        })));
+      });
+  }, [user?.id]);
 
   // Clock ticker — always runs to update the current time display
   useEffect(() => {
@@ -30,50 +45,35 @@ export default function EmployeeDashboard() {
     return () => clearInterval(timer);
   }, []);
 
-  // Calculate elapsed working time
+  // Calculate elapsed working time (background-safe via checkInTimestamp)
   useEffect(() => {
-    if (todayAttendance?.checkInTime) {
-      // If already checked out, calculate total duration once and STOP
-      if (todayAttendance?.checkOutTime) {
-        const [inH, inM, inS] = todayAttendance.checkInTime.split(':').map(Number);
-        const [outH, outM, outS] = todayAttendance.checkOutTime.split(':').map(Number);
-        const checkInDate = new Date();
-        checkInDate.setHours(inH, inM, inS || 0);
-        const checkOutDate = new Date();
-        checkOutDate.setHours(outH, outM, outS || 0);
-        const diff = Math.max(0, checkOutDate.getTime() - checkInDate.getTime());
-        const hours = Math.floor(diff / (1000 * 60 * 60));
-        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-        const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+    if (!todayAttendance?.checkInTime) return;
 
-        setElapsedTime(
-          `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
-        );
-        return; // No interval — timer berhenti
-      }
+    // Jika sudah check-out → hide card, jangan hitung durasi
+    if (todayAttendance.checkOutTime) return;
 
-      // Still working: run interval to update elapsed time live
-      const elapsedTimer = setInterval(() => {
-        const now = new Date();
-        const [checkInHours, checkInMinutes, checkInSeconds] = todayAttendance.checkInTime
-          .split(':')
-          .map(Number);
-        const checkInDate = new Date(now);
-        checkInDate.setHours(checkInHours, checkInMinutes, checkInSeconds || 0);
+    // Gunakan timestamp jika ada, fallback ke parse checkInTime
+    const startMs = todayAttendance.checkInTimestamp ?? (() => {
+      const [h, m, s] = todayAttendance.checkInTime!.split(':').map(Number);
+      const d = new Date();
+      d.setHours(h, m, s || 0);
+      return d.getTime();
+    })();
 
-        const diff = now.getTime() - checkInDate.getTime();
-        const hours = Math.floor(diff / (1000 * 60 * 60));
-        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-        const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+    const tick = () => {
+      const diff = Date.now() - startMs;
+      const hours = Math.floor(diff / 3600000);
+      const minutes = Math.floor((diff % 3600000) / 60000);
+      const seconds = Math.floor((diff % 60000) / 1000);
+      setElapsedTime(
+        `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+      );
+    };
 
-        setElapsedTime(
-          `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
-        );
-      }, 1000);
-
-      return () => clearInterval(elapsedTimer);
-    }
-  }, [todayAttendance]);
+    tick(); // Setel segera tanpa nunggu 1 detik
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [todayAttendance?.checkInTime, todayAttendance?.checkInTimestamp, todayAttendance?.checkOutTime]);
 
   return (
     <div className="flex flex-col min-h-full bg-slate-50 pb-32 relative">
@@ -102,8 +102,33 @@ export default function EmployeeDashboard() {
       </div>
 
       <div className="px-6 -mt-16 relative z-20 flex-1 flex flex-col">
-        {/* Attendance Status Card */}
-        {isTodayAttendance && todayAttendance?.checkInTime && (
+        {/* Yesterday forgot clock-out notification */}
+        {yesterdayForgotClockOut && (
+          <Card className="rounded-3xl border border-yellow-300/60 bg-yellow-50/90 backdrop-blur-xl drop-shadow-xl mb-4 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 bg-yellow-500/20 rounded-full flex items-center justify-center shrink-0 mt-0.5">
+                  <Clock size={20} className="text-yellow-700" />
+                </div>
+                <div className="flex-1">
+                  <p className="font-bold text-yellow-800 text-sm">Lupa Absen Keluar Kemarin</p>
+                  <p className="text-yellow-700 text-xs mt-0.5">
+                    Sistem mendeteksi Anda belum absen keluar kemarin. Data telah diperbarui otomatis dengan jam keluar 17:00.
+                  </p>
+                </div>
+                <button
+                  onClick={dismissYesterdayAlert}
+                  className="shrink-0 w-7 h-7 rounded-full bg-yellow-200/50 flex items-center justify-center hover:bg-yellow-300/50 transition-colors"
+                >
+                  <X size={14} className="text-yellow-700" />
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Attendance Status Card — hanya tampil selama bekerja (check-in tanpa check-out) */}
+        {isTodayAttendance && todayAttendance?.checkInTime && !todayAttendance?.checkOutTime && (
           <Card className="rounded-3xl border border-teal-200/40 bg-teal-50/70 backdrop-blur-xl drop-shadow-xl mb-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
             <CardContent className="p-5">
               <div className="space-y-4">
@@ -117,43 +142,36 @@ export default function EmployeeDashboard() {
                       <p className="font-bold text-teal-900 text-lg">{todayAttendance.checkInTime}</p>
                     </div>
                   </div>
-                  {todayAttendance.isLate && (
-                    <div className="flex items-center gap-1 bg-yellow-500/20 px-3 py-1.5 rounded-full">
-                      <AlertCircle size={16} className="text-yellow-700" />
-                      <span className="text-xs font-bold text-yellow-700">TERLAMBAT</span>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {todayAttendance.isLate && (
+                      <div className="flex items-center gap-1 bg-yellow-500/20 px-3 py-1.5 rounded-full">
+                        <AlertCircle size={16} className="text-yellow-700" />
+                        <span className="text-xs font-bold text-yellow-700">TERLAMBAT</span>
+                      </div>
+                    )}
+                    {todayAttendance.isForgotClockOut && (
+                      <div className="flex items-center gap-1 bg-orange-500/20 px-3 py-1.5 rounded-full">
+                        <Clock size={16} className="text-orange-700" />
+                        <span className="text-xs font-bold text-orange-700">LUPA ABSEN KELUAR</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                {/* Elapsed Time */}
+                {/* Elapsed Time — live dari background */}
                 <div className="pt-3 border-t border-teal-200/30">
                   <p className="text-xs text-teal-600 font-semibold uppercase tracking-wider mb-2">Durasi Kerja</p>
                   <p className="font-bold text-3xl text-teal-900 tracking-wider font-mono">{elapsedTime}</p>
                 </div>
 
-                {/* Check-out Status */}
-                {todayAttendance.checkOutTime ? (
-                  <div className="pt-3 border-t border-teal-200/30">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-gray-500/20 rounded-full flex items-center justify-center">
-                        <CheckCircle2 size={20} className="text-gray-600" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-600 font-semibold uppercase tracking-wider">Absen Keluar</p>
-                        <p className="font-bold text-gray-900">{todayAttendance.checkOutTime}</p>
-                      </div>
-                    </div>
+                <div className="pt-3 border-t border-teal-200/30 text-center">
+                  <div className="inline-block px-3 py-1 bg-teal-200/30 rounded-full">
+                    <p className="text-xs font-bold text-teal-700 flex items-center gap-1 justify-center">
+                      <Loader2 size={14} className="animate-spin" />
+                      Masih Bekerja
+                    </p>
                   </div>
-                ) : (
-                  <div className="pt-3 border-t border-teal-200/30 text-center">
-                    <div className="inline-block px-3 py-1 bg-teal-200/30 rounded-full">
-                      <p className="text-xs font-bold text-teal-700 flex items-center gap-1 justify-center">
-                        <Loader2 size={14} className="animate-spin" />
-                        Masih Bekerja
-                      </p>
-                    </div>
-                  </div>
-                )}
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -172,7 +190,8 @@ export default function EmployeeDashboard() {
                 <p className="font-bold text-gray-900 text-sm flex items-center gap-1.5 justify-end bg-teal-50 px-3 py-1.5 rounded-full">
                   <MapPin size={14} className="text-teal-600 shrink-0"/> {
                     (() => {
-                      const name = mockLocations.find(l => l.id === user?.locationId)?.name || 'Kantor Pusat';
+                      const loc = locations.find(l => l.id === user?.locationId);
+                      const name = loc?.name || '-';
                       return name.split(' ').slice(0, 2).join(' ');
                     })()
                   }
@@ -218,11 +237,18 @@ export default function EmployeeDashboard() {
                   <p className="font-bold text-gray-900 text-sm">{format(parseISO(record.date), 'dd MMM yyyy', { locale: id })}</p>
                   <p className="text-xs text-gray-500 mt-1 font-medium">Masuk: {record.timeIn} {record.timeOut ? `• Keluar: ${record.timeOut}` : ''}</p>
                 </div>
-                <span className={`px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider ${
-                  record.status === 'hadir' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                }`}>
-                  {record.status}
-                </span>
+                <div className="flex items-center gap-2">
+                  {record.is_forgot_clock_out && (
+                    <span className="px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-orange-100 text-orange-700">
+                      Lupa
+                    </span>
+                  )}
+                  <span className={`px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider ${
+                    record.status === 'hadir' ? 'bg-green-100 text-green-700' : record.status === 'telat' ? 'bg-yellow-100 text-yellow-700' : record.status === 'cuti' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'
+                  }`}>
+                    {record.status}
+                  </span>
+                </div>
               </div>
             )) : (
               <p className="text-sm text-gray-500 text-center py-6 bg-white rounded-2xl border border-gray-100 shadow-sm">Belum ada aktivitas</p>

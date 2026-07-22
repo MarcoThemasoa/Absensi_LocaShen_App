@@ -1,7 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Clock, History, UserCircle, CheckCircle2, AlertCircle, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
-import { mockAttendance } from '../lib/mockData';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { format, parseISO } from 'date-fns';
 import { id } from 'date-fns/locale';
@@ -10,28 +10,39 @@ import { cn } from '../lib/utils';
 export default function EmployeeHistory() {
   const { user } = useAuth();
   
+  const [records, setRecords] = useState<any[]>([]);
   const [filter, setFilter] = useState<'7' | '30' | 'all'>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
-  
-  const filteredRecords = useMemo(() => {
-    let records = mockAttendance.filter(r => r.userId === user?.id);
-    records.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    
+
+  // Fetch from Supabase on mount & filter change
+  useEffect(() => {
+    if (!user?.id) return;
+    let query = supabase
+      .from('attendance_records')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('date', { ascending: false });
+
     if (filter === '7') {
-      const past = new Date();
-      past.setDate(past.getDate() - 7);
-      past.setHours(0, 0, 0, 0);
-      records = records.filter(r => new Date(r.date).getTime() > past.getTime());
+      const past = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+      query = query.gte('date', past);
     } else if (filter === '30') {
-      const past = new Date();
-      past.setDate(past.getDate() - 30);
-      past.setHours(0, 0, 0, 0);
-      records = records.filter(r => new Date(r.date).getTime() > past.getTime());
+      const past = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+      query = query.gte('date', past);
     }
-    
-    return records;
+
+    query.then(({ data }) => {
+      if (data) setRecords(data.map((a: any) => ({
+        id: a.id, userId: a.user_id, userName: a.user_name,
+        date: a.date, timeIn: a.time_in, timeOut: a.time_out,
+        status: a.status, locationId: a.location_id, photoUrl: a.photo_url,
+        is_forgot_clock_out: a.is_forgot_clock_out,
+      })));
+    });
   }, [user?.id, filter]);
+  
+  const filteredRecords = records;
   
   const totalPages = Math.max(1, Math.ceil(filteredRecords.length / itemsPerPage));
   const paginatedRecords = filteredRecords.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -90,10 +101,15 @@ export default function EmployeeHistory() {
                 </div>
               </div>
             </div>
-            <div className="text-right flex flex-col items-end">
+            <div className="text-right flex flex-col items-end gap-1">
+              {record.is_forgot_clock_out && (
+                <span className="px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-orange-100 text-orange-700">
+                  Lupa Keluar
+                </span>
+              )}
               <span className={cn(
                 "px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider",
-                record.status === 'hadir' ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                record.status === 'hadir' ? "bg-green-100 text-green-700" : record.status === 'telat' ? "bg-yellow-100 text-yellow-700" : record.status === 'cuti' ? "bg-blue-100 text-blue-700" : "bg-red-100 text-red-700"
               )}>
                 {record.status}
               </span>

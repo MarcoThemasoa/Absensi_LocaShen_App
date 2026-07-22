@@ -1,16 +1,25 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent } from '../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Button } from '../components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '../components/ui/dialog';
-import { mockAttendance, mockLocations, mockAdminLogs } from '../lib/mockData';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 import { Download, Search, Maximize2, ChevronLeft, ChevronRight, Activity, Clock, MapPin } from 'lucide-react';
-import { format, parseISO, subDays, subMonths, isAfter, startOfDay } from 'date-fns';
+import { format, parseISO, subDays, isAfter, startOfDay } from 'date-fns';
 import { id } from 'date-fns/locale';
 import { Combobox } from '../components/ui/combobox';
+import { AttendanceRecord } from '../types';
+
+interface AdminActivityLog {
+  id: string; adminId: string; adminName: string; action: string;
+  timestamp: string; location: { lat: number; lng: number }; locationName: string;
+}
 
 export default function AdminReports() {
-  const [reports] = useState(mockAttendance);
+  const { locations } = useAuth();
+  const [reports, setReports] = useState<AttendanceRecord[]>([]);
+  const [adminLogs, setAdminLogs] = useState<AdminActivityLog[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [timeFilter, setTimeFilter] = useState<'1hari' | '7hari' | '1bulan' | 'semua'>('semua');
   const [locationFilter, setLocationFilter] = useState<string>('');
@@ -30,9 +39,52 @@ export default function AdminReports() {
   const [logCurrentPage, setLogCurrentPage] = useState(1);
   const logsPerPage = 15;
 
+  // Fetch attendance & logs from Supabase
+  useEffect(() => {
+    async function fetchReports() {
+      const [attResult, userResult, logResult] = await Promise.all([
+        supabase.from('attendance_records').select('*').order('date', { ascending: false }),
+        supabase.from('users').select('*').eq('role', 'employee'),
+        supabase.from('admin_activity_logs').select('*').order('action_timestamp', { ascending: false }),
+      ]);
+
+      const userData = userResult.data || [];
+      const userMap = new Map(userData.map((u: any) => [u.id, u]));
+
+      // Enrich attendance records with userName + locationId from users table
+      if (attResult.data && attResult.data.length > 0) {
+        setReports(attResult.data.map((a: any) => {
+          const user = userMap.get(a.user_id);
+          return {
+            id: a.id, userId: a.user_id, userName: user?.name || '',
+            date: a.date, timeIn: a.time_in || '', timeOut: a.time_out || '',
+            status: a.status, location: { lat: a.location_lat || -7.250445, lng: a.location_lng || 112.768845 },
+            locationId: user?.location_id || undefined,
+            photoUrl: a.photo_url || undefined,
+            isForgotClockOut: a.is_forgot_clock_out || false,
+          };
+        }));
+      }
+
+      const logData = logResult.data || [];
+      if (logData.length > 0) {
+        setAdminLogs(logData.map((l: any) => {
+          const admin = userMap.get(l.admin_id);
+          return {
+            id: l.id, adminId: l.admin_id, adminName: admin?.name || '',
+            action: l.action, timestamp: l.action_timestamp,
+            location: { lat: l.location_lat || 0, lng: l.location_lng || 0 },
+            locationName: l.location_name || '',
+          };
+        }));
+      }
+    }
+    fetchReports();
+  }, []);
+
   const filteredLogs = useMemo(() => {
     const today = startOfDay(new Date());
-    return mockAdminLogs.filter(log => {
+    return adminLogs.filter(log => {
       const logDate = startOfDay(parseISO(log.timestamp));
       if (logTimeFilter === '1hari') {
         if (!isAfter(logDate, subDays(today, 1))) return false;
@@ -43,9 +95,9 @@ export default function AdminReports() {
       }
       return true;
     });
-  }, [logTimeFilter]);
+  }, [logTimeFilter, adminLogs]);
 
-  useMemo(() => {
+  useEffect(() => {
     setLogCurrentPage(1);
   }, [logTimeFilter]);
 
@@ -84,7 +136,7 @@ export default function AdminReports() {
   }, [reports, searchQuery, timeFilter, locationFilter]);
 
   // Reset pagination when filters change
-  useMemo(() => {
+  useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, timeFilter, locationFilter]);
 
@@ -96,30 +148,16 @@ export default function AdminReports() {
 
   const handleExportCSV = () => {
     // Log export action
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition((pos) => {
-        const newLog = {
-          id: 'log' + Date.now(),
-          adminId: 'admin1',
-          adminName: 'Admin HRD',
-          action: 'Mengekspor data laporan absensi',
-          timestamp: new Date().toISOString(),
-          location: { lat: pos.coords.latitude, lng: pos.coords.longitude },
-          locationName: 'Lokasi Perangkat Admin'
-        };
-        mockAdminLogs.unshift(newLog);
-      });
-    } else {
-      mockAdminLogs.unshift({
-        id: 'log' + Date.now(),
-        adminId: 'admin1',
-        adminName: 'Admin HRD',
-        action: 'Mengekspor data laporan absensi',
-        timestamp: new Date().toISOString(),
-        location: { lat: -6.200000, lng: 106.816666 },
-        locationName: 'Lokasi Tidak Diketahui'
-      });
-    }
+    const newLog = {
+      id: 'log' + Date.now(),
+      adminId: 'admin1',
+      adminName: 'Admin HRD',
+      action: 'Mengekspor data laporan absensi',
+      timestamp: new Date().toISOString(),
+      location: { lat: -6.200000, lng: 106.816666 },
+      locationName: 'Lokasi Perangkat Admin'
+    };
+    setAdminLogs(prev => [newLog, ...prev]);
 
     const reportsToExport = reports.filter(report => {
       if (exportLocation && report.locationId !== exportLocation) return false;
@@ -137,7 +175,7 @@ export default function AdminReports() {
 
     const headers = ['ID,Tanggal,Nama,Jam Masuk,Jam Keluar,Status,Lokasi'];
     const csvData = reportsToExport.map(r => {
-      const locName = mockLocations.find(l => l.id === r.locationId)?.name || '';
+      const locName = locations.find(l => l.id === r.locationId)?.name || '';
       return `${r.id},${r.date},"${r.userName}",${r.timeIn},${r.timeOut || ''},${r.status},"${locName}"`;
     });
 
@@ -180,48 +218,34 @@ export default function AdminReports() {
                   <Activity className="text-yellow-400" size={24} /> Log Aktivitas Admin
                 </DialogTitle>
                 <div className="flex flex-wrap gap-2 items-center mt-4 pt-2">
-                  <Button variant={logTimeFilter === '1hari' ? 'default' : 'outline'} className={logTimeFilter === '1hari' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setLogTimeFilter('1hari')}>1 Hari</Button>
-                  <Button variant={logTimeFilter === '7hari' ? 'default' : 'outline'} className={logTimeFilter === '7hari' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setLogTimeFilter('7hari')}>7 Hari</Button>
-                  <Button variant={logTimeFilter === '1bulan' ? 'default' : 'outline'} className={logTimeFilter === '1bulan' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setLogTimeFilter('1bulan')}>1 Bulan</Button>
-                  <Button variant={logTimeFilter === 'semua' ? 'default' : 'outline'} className={logTimeFilter === 'semua' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setLogTimeFilter('semua')}>Semua</Button>
+                  <Button variant={logTimeFilter === '1hari' ? 'default' : 'outline'} className={logTimeFilter === '1hari' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="default" onClick={() => setLogTimeFilter('1hari')}>1 Hari</Button>
+                  <Button variant={logTimeFilter === '7hari' ? 'default' : 'outline'} className={logTimeFilter === '7hari' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="default" onClick={() => setLogTimeFilter('7hari')}>7 Hari</Button>
+                  <Button variant={logTimeFilter === '1bulan' ? 'default' : 'outline'} className={logTimeFilter === '1bulan' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="default" onClick={() => setLogTimeFilter('1bulan')}>1 Bulan</Button>
+                  <Button variant={logTimeFilter === 'semua' ? 'default' : 'outline'} className={logTimeFilter === 'semua' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="default" onClick={() => setLogTimeFilter('semua')}>Semua</Button>
                 </div>
               </DialogHeader>
-              <div className="overflow-y-auto flex-1">
-                <Table className="w-full min-w-[500px]">
-                  <TableHeader className="bg-gray-50/50 sticky top-0 z-10">
-                    <TableRow className="border-b border-gray-100/50 hover:bg-transparent">
-                      <TableHead className="font-bold text-gray-900 h-10 w-40 pl-6">Waktu</TableHead>
-                      <TableHead className="font-bold text-gray-900">Tindakan</TableHead>
-                      <TableHead className="font-bold text-gray-900 pr-6">Lokasi</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {paginatedLogs.length > 0 ? paginatedLogs.map((log) => (
-                      <TableRow key={log.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
-                        <TableCell className="font-medium text-gray-600 text-xs pl-6">
-                          <div className="flex items-center gap-1.5">
-                            <Clock size={12} className="text-[#113129] shrink-0" />
-                            <span className="whitespace-nowrap">{format(parseISO(log.timestamp), 'dd MMM yy HH:mm', { locale: id })}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-bold text-gray-900 text-sm">{log.action}</TableCell>
-                        <TableCell className="font-medium text-gray-600 pr-6">
-                          <div className="flex flex-col">
-                            <span className="flex items-center gap-1 text-[#113129] text-[10px] font-bold bg-[#113129]/10 w-fit px-1.5 py-0.5 rounded mb-0.5 whitespace-nowrap">
-                              <MapPin size={10} /> {log.locationName}
-                            </span>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )) : (
-                      <TableRow>
-                        <TableCell colSpan={3} className="h-32 text-center text-gray-500 font-medium">
-                          Tidak ada log aktivitas yang sesuai dengan filter.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
+              <div className="overflow-y-auto flex-1 p-4 space-y-3">
+                {paginatedLogs.length > 0 ? paginatedLogs.map((log) => (
+                  <div key={log.id} className="rounded-2xl border border-gray-100 bg-white shadow-sm p-4 hover:shadow-md transition-shadow">
+                    <h3 className="font-bold text-gray-900 text-sm mb-2 leading-snug line-clamp-2">{log.action}</h3>
+                    <div className="flex items-center gap-3 text-xs text-gray-500">
+                      <span className="flex items-center gap-1">
+                        <Clock size={12} className="text-[#113129] shrink-0" />
+                        {format(parseISO(log.timestamp), 'dd MMM yy HH:mm', { locale: id })}
+                      </span>
+                      {log.locationName && (
+                        <span className="flex items-center gap-1">
+                          <MapPin size={12} className="text-[#113129] shrink-0" />
+                          {log.locationName}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )) : (
+                  <div className="h-32 flex items-center justify-center text-center text-gray-500 font-medium">
+                    Tidak ada log aktivitas yang sesuai dengan filter.
+                  </div>
+                )}
               </div>
               
               {/* Pagination Controls for Logs */}
@@ -295,11 +319,10 @@ export default function AdminReports() {
               <div className="flex flex-col gap-2">
                 <label className="text-sm font-bold text-gray-700">Pilih Cabang (Opsional)</label>
                 <Combobox
-                  options={[{ label: 'Semua Cabang', value: '' }, ...mockLocations.map(l => ({ label: l.name, value: l.id }))]}
+                  options={[{ label: 'Semua Cabang', value: '' }, ...locations.map(l => ({ label: l.name, value: l.id }))]}
                   value={exportLocation}
                   onChange={setExportLocation}
                   placeholder="Semua Cabang"
-                  className="!w-full"
                 />
               </div>
               <div className="flex flex-col gap-3">
@@ -336,41 +359,59 @@ export default function AdminReports() {
                   className="w-full pl-11 pr-4 py-2 bg-white border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#113129] transition-all shadow-sm h-10" 
                 />
               </div>
-              <div className="w-full md:w-56 relative z-50">
+              <div className="w-full md:w-64 relative">
                 <Combobox
-                  options={[{ label: 'Semua Cabang', value: '' }, ...mockLocations.map(l => ({ label: l.name, value: l.id }))]}
+                  options={[{ label: 'Semua Cabang', value: '' }, ...locations.map(l => ({ label: l.name, value: l.id }))]}
                   value={locationFilter}
                   onChange={setLocationFilter}
                   placeholder="Filter Cabang"
-                  className="!w-full md:!w-48"
                 />
               </div>
             </div>
             <div className="flex flex-wrap gap-2 items-center">
-              <Button variant={timeFilter === '1hari' ? 'default' : 'outline'} className={timeFilter === '1hari' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setTimeFilter('1hari')}>1 Hari</Button>
-              <Button variant={timeFilter === '7hari' ? 'default' : 'outline'} className={timeFilter === '7hari' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setTimeFilter('7hari')}>7 Hari</Button>
-              <Button variant={timeFilter === '1bulan' ? 'default' : 'outline'} className={timeFilter === '1bulan' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setTimeFilter('1bulan')}>1 Bulan</Button>
-              <Button variant={timeFilter === 'semua' ? 'default' : 'outline'} className={timeFilter === 'semua' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="sm" onClick={() => setTimeFilter('semua')}>Semua</Button>
+              <Button variant={timeFilter === '1hari' ? 'default' : 'outline'} className={timeFilter === '1hari' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="default" onClick={() => setTimeFilter('1hari')}>1 Hari</Button>
+              <Button variant={timeFilter === '7hari' ? 'default' : 'outline'} className={timeFilter === '7hari' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="default" onClick={() => setTimeFilter('7hari')}>7 Hari</Button>
+              <Button variant={timeFilter === '1bulan' ? 'default' : 'outline'} className={timeFilter === '1bulan' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="default" onClick={() => setTimeFilter('1bulan')}>1 Bulan</Button>
+              <Button variant={timeFilter === 'semua' ? 'default' : 'outline'} className={timeFilter === 'semua' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="default" onClick={() => setTimeFilter('semua')}>Semua</Button>
             </div>
           </div>
           {/* Card List - tampil di layar kecil/menengah, meniru desain app */}
           <div className="flex flex-col gap-3 p-4 md:p-6 xl:hidden">
             {paginatedReports.length > 0 ? paginatedReports.map((report) => {
-              const locationName = mockLocations.find(l => l.id === report.locationId)?.name || '-';
+              const locationName = locations.find(l => l.id === report.locationId)?.name || '-';
               const isOutside = locationName.toLowerCase().includes('luar');
               return (
                 <Dialog key={report.id}>
                   <DialogTrigger>
-                    <div className="w-full text-left p-4 rounded-2xl border border-gray-100 bg-white shadow-sm hover:shadow-md transition-shadow flex flex-col gap-1.5">
+                    <div className="w-full text-left p-4 rounded-2xl border border-gray-100 bg-white shadow-sm hover:shadow-md transition-shadow flex flex-col gap-2">
                       <div className="flex items-start justify-between gap-2">
                         <span className="font-bold text-gray-900">{report.userName}</span>
-                        <span className="shrink-0 text-xs font-semibold text-gray-500 bg-gray-100 rounded-full px-3 py-1 whitespace-nowrap">
+                        <span className="shrink-0 text-[10px] font-semibold text-gray-500 bg-gray-100 rounded-full px-2.5 py-1 whitespace-nowrap">
                           {format(parseISO(report.date), 'dd MMM yyyy', { locale: id })}
                         </span>
                       </div>
-                      <div className={`flex items-center gap-1.5 text-sm font-medium ${isOutside ? 'text-orange-600' : 'text-[#113129]'}`}>
-                        <MapPin size={14} className="shrink-0" />
-                        <span>{locationName}</span>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 text-sm font-medium text-[#113129]">
+                          <MapPin size={14} className="shrink-0" />
+                          <span className="truncate">{locationName}</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {report.timeIn && <span className="text-xs text-gray-500">{report.timeIn}</span>}
+                          <div className="flex items-center gap-1">
+                            {report.isForgotClockOut && (
+                              <span className="inline-flex items-center rounded-md bg-orange-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-orange-700 ring-1 ring-inset ring-orange-600/20">LK</span>
+                            )}
+                            {report.status === 'hadir' ? (
+                              <span className="inline-flex items-center rounded-md bg-green-50 px-2 py-0.5 text-[10px] font-bold uppercase text-green-700 ring-1 ring-inset ring-green-600/20">H</span>
+                            ) : report.status === 'telat' ? (
+                              <span className="inline-flex items-center rounded-md bg-yellow-50 px-2 py-0.5 text-[10px] font-bold uppercase text-yellow-700 ring-1 ring-inset ring-yellow-600/20">T</span>
+                            ) : report.status === 'cuti' ? (
+                              <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase text-blue-700 ring-1 ring-inset ring-blue-600/20">C</span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-md bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase text-red-700 ring-1 ring-inset ring-red-600/20">A</span>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </DialogTrigger>
@@ -386,15 +427,20 @@ export default function AdminReports() {
                         </div>
                         <div>
                           <p className="text-gray-400 font-medium text-xs">Status</p>
-                          {report.status === 'hadir' ? (
-                            <span className="inline-flex items-center rounded-lg bg-green-50 px-2.5 py-1 text-xs font-bold uppercase text-green-700 ring-1 ring-inset ring-green-600/20">Hadir</span>
-                          ) : report.status === 'telat' ? (
-                            <span className="inline-flex items-center rounded-lg bg-yellow-50 px-2.5 py-1 text-xs font-bold uppercase text-yellow-700 ring-1 ring-inset ring-yellow-600/20">Telat</span>
-                          ) : report.status === 'cuti' ? (
-                            <span className="inline-flex items-center rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-bold uppercase text-blue-700 ring-1 ring-inset ring-blue-600/20">Cuti</span>
-                          ) : (
-                            <span className="inline-flex items-center rounded-lg bg-red-50 px-2.5 py-1 text-xs font-bold uppercase text-red-700 ring-1 ring-inset ring-red-600/20">Alpha</span>
-                          )}
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            {report.isForgotClockOut && (
+                              <span className="inline-flex items-center rounded-lg bg-orange-50 px-2.5 py-1 text-xs font-bold uppercase text-orange-700 ring-1 ring-inset ring-orange-600/20">Lupa Keluar</span>
+                            )}
+                            {report.status === 'hadir' ? (
+                              <span className="inline-flex items-center rounded-lg bg-green-50 px-2.5 py-1 text-xs font-bold uppercase text-green-700 ring-1 ring-inset ring-green-600/20">Hadir</span>
+                            ) : report.status === 'telat' ? (
+                              <span className="inline-flex items-center rounded-lg bg-yellow-50 px-2.5 py-1 text-xs font-bold uppercase text-yellow-700 ring-1 ring-inset ring-yellow-600/20">Telat</span>
+                            ) : report.status === 'cuti' ? (
+                              <span className="inline-flex items-center rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-bold uppercase text-blue-700 ring-1 ring-inset ring-blue-600/20">Cuti</span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-lg bg-red-50 px-2.5 py-1 text-xs font-bold uppercase text-red-700 ring-1 ring-inset ring-red-600/20">Alpha</span>
+                            )}
+                          </div>
                         </div>
                         <div>
                           <p className="text-gray-400 font-medium text-xs">Jam Masuk</p>
@@ -445,20 +491,25 @@ export default function AdminReports() {
                     </TableCell>
                     <TableCell className="font-medium text-gray-900 text-center">{report.userName}</TableCell>
                     <TableCell className="font-medium text-gray-600 text-center text-xs">
-                      {mockLocations.find(l => l.id === report.locationId)?.name || '-'}
+                      {locations.find(l => l.id === report.locationId)?.name || '-'}
                     </TableCell>
                     <TableCell className="font-medium text-gray-600 text-center">{report.timeIn || '-'}</TableCell>
                     <TableCell className="font-medium text-gray-600 text-center">{report.timeOut || '-'}</TableCell>
                     <TableCell className="text-center">
-                      {report.status === 'hadir' ? (
-                        <span className="inline-flex items-center rounded-xl bg-green-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-green-700 ring-1 ring-inset ring-green-600/20 shadow-sm">Hadir</span>
-                      ) : report.status === 'telat' ? (
-                        <span className="inline-flex items-center rounded-xl bg-yellow-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-yellow-700 ring-1 ring-inset ring-yellow-600/20 shadow-sm">Telat</span>
-                      ) : report.status === 'cuti' ? (
-                        <span className="inline-flex items-center rounded-xl bg-blue-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-600/20 shadow-sm">Cuti</span>
-                      ) : (
-                        <span className="inline-flex items-center rounded-xl bg-red-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-red-700 ring-1 ring-inset ring-red-600/20 shadow-sm">Alpha</span>
-                      )}
+                      <div className="flex items-center justify-center gap-1.5">
+                        {report.isForgotClockOut && (
+                          <span className="inline-flex items-center rounded-xl bg-orange-50 px-2 py-1 text-xs font-bold uppercase tracking-wider text-orange-700 ring-1 ring-inset ring-orange-600/20 shadow-sm">Lupa</span>
+                        )}
+                        {report.status === 'hadir' ? (
+                          <span className="inline-flex items-center rounded-xl bg-green-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-green-700 ring-1 ring-inset ring-green-600/20 shadow-sm">Hadir</span>
+                        ) : report.status === 'telat' ? (
+                          <span className="inline-flex items-center rounded-xl bg-yellow-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-yellow-700 ring-1 ring-inset ring-yellow-600/20 shadow-sm">Telat</span>
+                        ) : report.status === 'cuti' ? (
+                          <span className="inline-flex items-center rounded-xl bg-blue-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-600/20 shadow-sm">Cuti</span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-xl bg-red-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-red-700 ring-1 ring-inset ring-red-600/20 shadow-sm">Alpha</span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-center flex justify-center items-center py-3">
                       {report.photoUrl ? (

@@ -1,14 +1,15 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { Users, CheckCircle, AlertCircle, Calendar } from 'lucide-react';
+import { CheckCircle, AlertCircle, Calendar } from 'lucide-react';
 import { format } from 'date-fns';
 import { id } from 'date-fns/locale';
-import { MapContainer, TileLayer, Marker } from 'react-leaflet';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Link } from 'react-router-dom';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { mockAttendance, mockLocations, mockUsers } from '../lib/mockData';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 import { Combobox } from '../components/ui/combobox';
 
 // Fix for default marker icon in leaflet
@@ -19,39 +20,95 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-const weeklyData = [
-  { name: 'Sen', hadir: 120, telat: 10, alpha: 2 },
-  { name: 'Sel', hadir: 130, telat: 8, alpha: 1 },
-  { name: 'Rab', hadir: 125, telat: 12, alpha: 3 },
-  { name: 'Kam', hadir: 140, telat: 5, alpha: 0 },
-  { name: 'Jum', hadir: 135, telat: 7, alpha: 2 },
-];
+interface DailyStat { name: string; hadir: number; telat: number; alpha: number; }
 
 export default function AdminDashboard() {
+  const { locations } = useAuth();
   const [selectedLocationId, setSelectedLocationId] = useState<string>('semua');
+  const [stats, setStats] = useState({ hadir: 0, telat: 0, cuti: 0, alpha: 0 });
+  const [weeklyChart, setWeeklyChart] = useState<DailyStat[]>([]);
+  const [chartRange, setChartRange] = useState<'7hari' | '30hari'>('7hari');
+  const [loading, setLoading] = useState(true);
 
-  const today = new Date().toISOString().split('T')[0];
-  
-  const stats = useMemo(() => {
-    const todaysAttendance = mockAttendance.filter(a => a.date === today && (selectedLocationId === 'semua' || a.locationId === selectedLocationId));
-    
-    const hadir = todaysAttendance.filter(a => a.status === 'hadir').length;
-    const telat = todaysAttendance.filter(a => a.status === 'telat').length;
-    const cuti = todaysAttendance.filter(a => a.status === 'cuti').length;
-    
-    let alpha = todaysAttendance.filter(a => a.status === 'alpha').length;
-    if (selectedLocationId === 'semua') {
-      const activeEmployees = mockUsers.filter(u => u.role === 'employee' && u.status === 'active');
-      const absentEmployeesCount = activeEmployees.filter(u => !mockAttendance.find(a => a.userId === u.id && a.date === today)).length;
-      alpha += absentEmployeesCount;
+  const today = format(new Date(), 'yyyy-MM-dd');
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+
+    // ——— Ambil semua attendance hari ini ———
+    let attQuery = supabase
+      .from('attendance_records')
+      .select('user_id, status')
+      .eq('date', today);
+
+    const { data: allTodayAtt } = await attQuery;
+    let todayAtt = allTodayAtt || [];
+
+    // ——— Filter berdasarkan lokasi jika dipilih ———
+    let activeEmployeeIds: string[] = [];
+    if (selectedLocationId !== 'semua') {
+      const { data: locUsers } = await supabase
+        .from('users')
+        .select('id')
+        .eq('location_id', selectedLocationId);
+      const locUserIds = (locUsers || []).map(u => u.id);
+      todayAtt = todayAtt.filter(a => locUserIds.includes(a.user_id));
+      activeEmployeeIds = locUserIds;
+    } else {
+      const { data: allEmp } = await supabase
+        .from('users')
+        .select('id')
+        .eq('role', 'employee')
+        .eq('status', 'active');
+      activeEmployeeIds = (allEmp || []).map(u => u.id);
     }
 
-    return { hadir, telat, cuti, alpha };
-  }, [selectedLocationId, today]);
+    // ——— Hitung stats ———
+    const hadir = todayAtt.filter(a => a.status === 'hadir').length;
+    const telat = todayAtt.filter(a => a.status === 'telat').length;
+    const cuti = todayAtt.filter(a => a.status === 'cuti').length;
+    const alphaStatus = todayAtt.filter(a => a.status === 'alpha').length;
+    const hadirUserIds = todayAtt.filter(a => a.status === 'hadir' || a.status === 'telat').map(a => a.user_id);
+    const absentCount = activeEmployeeIds.filter(id => !hadirUserIds.includes(id)).length;
+    const alpha = alphaStatus + absentCount;
+
+    setStats({ hadir, telat, cuti, alpha });
+
+    // ——— Grafik (7 atau 30 hari terakhir) ———
+    const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+    const rangeDays = chartRange === '30hari' ? 29 : 6;
+    const days: { name: string; date: string }[] = [];
+    for (let i = rangeDays; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      days.push({ name: dayNames[d.getDay()], date: format(d, 'yyyy-MM-dd') });
+    }
+
+    const { data: chartAtt } = await supabase
+      .from('attendance_records')
+      .select('date, status')
+      .gte('date', days[0].date)
+      .lte('date', days[days.length - 1].date);
+
+    const chartMap = new Map(days.map(d => [d.date, { name: d.name, hadir: 0, telat: 0, alpha: 0 }]));
+    for (const r of chartAtt || []) {
+      const row = chartMap.get(r.date);
+      if (row && r.status !== 'cuti') {
+        if (r.status === 'hadir') row.hadir++;
+        else if (r.status === 'telat') row.telat++;
+        else if (r.status === 'alpha') row.alpha++;
+      }
+    }
+    setWeeklyChart(Array.from(chartMap.values()));
+
+    setLoading(false);
+  }, [selectedLocationId, today, chartRange]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   const locationOptions = [
     { label: 'Semua Cabang', value: 'semua' },
-    ...mockLocations.map(l => ({ label: l.name, value: l.id }))
+    ...locations.map(l => ({ label: l.name, value: l.id }))
   ];
 
   return (
@@ -71,6 +128,14 @@ export default function AdminDashboard() {
         </div>
       </div>
 
+      {loading ? (
+        <div className="flex items-center justify-center py-20">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-4 border-teal-200 border-t-teal-600 rounded-full animate-spin"></div>
+            <p className="text-sm text-gray-500 font-medium">Memuat data...</p>
+          </div>
+        </div>
+      ) : (
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
         <Link to={`/admin/karyawan?status=hadir&location=${selectedLocationId}`} className="block">
           <Card className="rounded-3xl border border-white/60 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] hover:-translate-y-1 transition-all cursor-pointer h-full">
@@ -132,33 +197,54 @@ export default function AdminDashboard() {
           </Card>
         </Link>
       </div>
+      )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+      <div className="grid grid-cols-1 gap-8 mt-8">
         <Card className="rounded-3xl border border-white/60 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] col-span-1 h-96 flex flex-col p-6">
-           <h3 className="font-bold text-lg text-gray-900 mb-4">Grafik Kehadiran Mingguan</h3>
-           <div className="flex-1 w-full mt-4">
-             <ResponsiveContainer width="100%" height="100%">
-               <BarChart data={weeklyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} dy={10} />
-                 <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} />
-                 <Tooltip cursor={{ fill: '#f3f4f6' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                  <Bar dataKey="hadir" fill="#10B981" radius={[4, 4, 0, 0]} stackId="a" name="Hadir" />
-                  <Bar dataKey="telat" fill="#FACC15" radius={[4, 4, 0, 0]} stackId="a" name="Telat" />
-                  <Bar dataKey="alpha" fill="#EF4444" radius={[4, 4, 0, 0]} stackId="a" name="Alpha" />
-               </BarChart>
-             </ResponsiveContainer>
+           <div className="flex items-start justify-between gap-4 mb-2">
+              <div>
+                <h3 className="font-bold text-2xl text-gray-900 tracking-tight">Grafik Kehadiran</h3>
+                <p className="text-gray-400 text-sm mt-1.5 font-medium">
+                  {selectedLocationId === 'semua'
+                    ? 'Menampilkan data dari semua cabang'
+                    : `Menampilkan data dari: ${locations.find(l => l.id === selectedLocationId)?.name || '-'}`}
+                </p>
+              </div>
+              <div className="flex gap-1 shrink-0">
+                <button onClick={() => setChartRange('7hari')} className={`px-4 py-2 text-sm font-bold rounded-xl transition-colors ${chartRange === '7hari' ? 'bg-[#113129] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>7 Hari</button>
+                <button onClick={() => setChartRange('30hari')} className={`px-4 py-2 text-sm font-bold rounded-xl transition-colors ${chartRange === '30hari' ? 'bg-[#113129] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>30 Hari</button>
+              </div>
            </div>
+         <div className="flex-1 w-full mt-5">
+              <ResponsiveContainer width="100%" height="100%">
+                 <LineChart data={weeklyChart} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} />
+                  <Tooltip cursor={{ fill: '#f3f4f6' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                  <Legend verticalAlign="top" height={36} />
+                   <Line type="monotone" dataKey="hadir" stroke="#10B981" strokeWidth={2} dot={{ fill: '#10B981', r: 4 }} name="Hadir" />
+                   <Line type="monotone" dataKey="telat" stroke="#FACC15" strokeWidth={2} dot={{ fill: '#FACC15', r: 4 }} name="Telat" />
+                   <Line type="monotone" dataKey="alpha" stroke="#EF4444" strokeWidth={2} dot={{ fill: '#EF4444', r: 4 }} name="Alpha" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
         </Card>
         <Card className="rounded-3xl border border-white/60 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] col-span-1 h-96 flex flex-col p-6">
-           <h3 className="font-bold text-lg text-gray-900 mb-4">Distribusi Lokasi</h3>
-           <div className="flex-1 rounded-2xl overflow-hidden border border-gray-200 relative z-0">
-             <MapContainer center={[-7.250445, 112.768845]} zoom={10} style={{ height: '100%', width: '100%', zIndex: 0 }}>
-               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OSM' />
-               <Marker position={[-7.250445, 112.768845]} />
-               <Marker position={[-7.445214, 112.716186]} />
-             </MapContainer>
-           </div>
+           <h3 className="font-bold text-2xl text-gray-900 tracking-tight mb-4">Distribusi Lokasi</h3>
+            <div className="flex-1 rounded-2xl overflow-hidden border border-gray-200 relative z-0">
+              <MapContainer center={locations.length > 0 ? [locations[0].lat, locations[0].lng] : [-7.250445, 112.768845]} zoom={10} style={{ height: '100%', width: '100%', zIndex: 0 }}>
+                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OSM' />
+                {locations.filter(l => l.lat && l.lng).map(loc => (
+                  <Marker key={loc.id} position={[loc.lat, loc.lng]}>
+                    <Popup>
+                      <div className="font-bold text-sm">{loc.name}</div>
+                      {loc.address && <div className="text-xs text-gray-500">{loc.address}</div>}
+                    </Popup>
+                  </Marker>
+                ))}
+              </MapContainer>
+            </div>
         </Card>
       </div>
     </div>

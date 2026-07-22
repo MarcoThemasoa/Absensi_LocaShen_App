@@ -3,22 +3,24 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import Webcam from 'react-webcam';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import { ArrowLeft, CheckCircle2, ScanFace, MapPinned, XCircle, Loader2, Clock, AlertCircle } from 'lucide-react';
 import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
-import { mockLocations } from '../lib/mockData';
 import { useAuth } from '../context/AuthContext';
 import { getCachedPosition } from '../lib/locationCache';
 import { CheckInRequiredDialog } from '../components/CheckInRequiredDialog';
+import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
 
 export default function CameraAbsen() {
-  const { user, todayAttendance, recordCheckIn, recordCheckOut } = useAuth();
+  const { user, todayAttendance, locations, recordCheckIn, recordCheckOut, clearTodayAttendance } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const webcamRef = useRef<Webcam>(null);
   
   const isCheckOut = new URLSearchParams(location.search).get('type') === 'keluar';
   const [showCheckInDialog, setShowCheckInDialog] = useState(false);
+  const [showOutOfHoursDialog, setShowOutOfHoursDialog] = useState(false);
 
   const [step, setStep] = useState<'location' | 'face' | 'liveness' | 'success' | 'error'>('location');
   const [gpsLoading, setGpsLoading] = useState(true);
@@ -33,11 +35,32 @@ export default function CameraAbsen() {
   const requestRef = useRef<number | null>(null);
   const lastVideoTime = useRef<number>(-1);
   const [blinkDetected, setBlinkDetected] = useState(false);
+  const [showForgotConfirm, setShowForgotConfirm] = useState(false);
+  const [forgotConfirmed, setForgotConfirmed] = useState(false);
+
+  const SCHEDULE_END_HOUR = 17; // jam kerja selesai 17:00
+  const GRACE_END_HOUR = 20;    // grace period sampe 20:00 (3 jam setelah jadwal)
+  const GRACE_END_TOTAL_MIN = GRACE_END_HOUR * 60;
 
   // Check if trying to check-out without check-in
   useEffect(() => {
     if (isCheckOut && !todayAttendance?.checkInTime) {
       setShowCheckInDialog(true);
+    }
+  }, [isCheckOut, todayAttendance]);
+
+  // Check working hours for check-in (allowed: 07:00 - 17:00)
+  useEffect(() => {
+    if (!isCheckOut && !todayAttendance?.checkInTime) {
+      const now = new Date();
+      const hour = now.getHours();
+      const minute = now.getMinutes();
+      const totalMinutes = hour * 60 + minute;
+      const startAllowed = 7 * 60;   // 07:00
+      const endAllowed = 17 * 60;    // 17:00
+      if (totalMinutes < startAllowed || totalMinutes > endAllowed) {
+        setShowOutOfHoursDialog(true);
+      }
     }
   }, [isCheckOut, todayAttendance]);
 
@@ -115,6 +138,8 @@ export default function CameraAbsen() {
     };
   }, [step, detectBlink, blinkDetected]);
 
+  const [userLat, setUserLat] = useState<number | null>(null);
+  const [userLng, setUserLng] = useState<number | null>(null);
   const [distanceInfo, setDistanceInfo] = useState<number | null>(null);
 
   useEffect(() => {
@@ -134,17 +159,19 @@ export default function CameraAbsen() {
   useEffect(() => {
     if (step !== 'location') return;
 
-    const handlePosition = (userLat: number, userLng: number) => {
+    const handlePosition = (lat: number, lng: number) => {
+      setUserLat(lat);
+      setUserLng(lng);
       let isAnyInRange = false;
       let closestDist = Infinity;
 
-      const assignedLoc = mockLocations.find(l => l.id === user?.locationId);
+      const assignedLoc = locations.find(l => l.id === user?.locationId);
       if (assignedLoc) {
         const R = 6371e3;
-        const lat1 = userLat * Math.PI / 180;
+        const lat1 = lat * Math.PI / 180;
         const lat2 = assignedLoc.lat * Math.PI / 180;
-        const dLat = (assignedLoc.lat - userLat) * Math.PI / 180;
-        const dLng = (assignedLoc.lng - userLng) * Math.PI / 180;
+        const dLat = (assignedLoc.lat - lat) * Math.PI / 180;
+        const dLng = (assignedLoc.lng - lng) * Math.PI / 180;
         const a =
           Math.sin(dLat / 2) * Math.sin(dLat / 2) +
           Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
@@ -203,7 +230,7 @@ export default function CameraAbsen() {
     }
   };
 
-  const handleSuccessConfirm = () => {
+  const handleSuccessConfirm = (isForgot?: boolean) => {
     const now = new Date();
     const hours = String(now.getHours()).padStart(2, '0');
     const minutes = String(now.getMinutes()).padStart(2, '0');
@@ -212,13 +239,13 @@ export default function CameraAbsen() {
     setAttendanceTime(timeString);
 
     if (isCheckOut) {
-      recordCheckOut(timeString);
+      recordCheckOut(timeString, isForgot ?? forgotConfirmed);
       toast.success('Absen keluar tercatat');
     } else {
       // Check if late (after 08:00)
-      const hours = now.getHours();
-      const minutes = now.getMinutes();
-      const isLateTime = hours > 8 || (hours === 8 && minutes > 0);
+      const hourNum = now.getHours();
+      const minNum = now.getMinutes();
+      const isLateTime = hourNum > 8 || (hourNum === 8 && minNum > 0);
       setIsLate(isLateTime);
       recordCheckIn(timeString);
 
@@ -233,6 +260,33 @@ export default function CameraAbsen() {
   const videoConstraints = {
     facingMode: "user"
   };
+
+  if (showOutOfHoursDialog) {
+    return (
+      <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-50 p-6">
+        <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl">
+          <div className="text-center">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Clock size={32} className="text-red-500" />
+            </div>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">Di Luar Jam Kerja</h2>
+            <p className="text-gray-500 text-sm mb-1">
+              Absen masuk hanya dapat dilakukan pada pukul <span className="font-semibold">07:00 - 17:00</span>.
+            </p>
+            <p className="text-gray-400 text-xs mb-6">
+              Jam kerja dimulai pukul 08:00 dengan toleransi 1 jam sebelumnya.
+            </p>
+          </div>
+          <Button 
+            className="w-full h-12 bg-teal-950 hover:bg-teal-900 text-white rounded-2xl font-bold"
+            onClick={() => navigate('/dashboard')}
+          >
+            Kembali ke Dashboard
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   if (showCheckInDialog) {
     return (
@@ -330,7 +384,7 @@ export default function CameraAbsen() {
                     <CheckCircle2 size={40} />
                   </div>
                   <h3 className="font-bold text-xl mb-2">Lokasi Valid</h3>
-                  <p className="text-gray-500 text-sm mb-8">{`Anda berada di radius ${mockLocations.find(l => l.id === user?.locationId)?.name || 'Kantor Pusat'}`}</p>
+                  <p className="text-gray-500 text-sm mb-8">{`Anda berada di radius ${locations.find(l => l.id === user?.locationId)?.name || '-'}`}</p>
                   <Button onClick={handleNextStep} className="w-full h-14 bg-teal-950 hover:bg-teal-900 rounded-2xl text-lg font-bold">Lanjut ke Kamera</Button>
                 </div>
               ) : (
@@ -349,6 +403,49 @@ export default function CameraAbsen() {
           </Card>
         </div>
       )}
+
+      {/* Forgot clock-out confirmation dialog */}
+      <Dialog open={showForgotConfirm} onOpenChange={setShowForgotConfirm}>
+        <DialogContent className="sm:max-w-md rounded-3xl border-gray-100 bg-white shadow-xl p-6 mx-auto">
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <Clock className="w-5 h-5 text-yellow-600" />
+              <DialogTitle className="text-lg font-bold text-gray-900">Absen Keluar Larut Malam</DialogTitle>
+            </div>
+          </DialogHeader>
+          <p className="text-gray-600 text-sm mt-2">
+            Anda melakukan absen keluar setelah pukul {GRACE_END_HOUR.toString().padStart(2, '0')}:00.
+            Apakah Anda <strong className="text-gray-900">lupa absen keluar</strong> sebelumnya?
+          </p>
+          <p className="text-gray-400 text-xs mt-1">
+            Jika "Ya", sistem akan menandai hari ini sebagai <strong>lupa absen keluar</strong>.
+            Jika "Tidak", ini dianggap lembur / kerja larut malam.
+          </p>
+          <DialogFooter className="mt-6 flex gap-3 sm:justify-end">
+            <Button
+              variant="outline"
+              className="rounded-xl"
+              onClick={() => {
+                setForgotConfirmed(false);
+                setShowForgotConfirm(false);
+                handleSuccessConfirm(false);
+              }}
+            >
+              Tidak (Saya Lembur)
+            </Button>
+            <Button
+              className="rounded-xl bg-yellow-600 hover:bg-yellow-700 text-white font-bold"
+              onClick={() => {
+                setForgotConfirmed(true);
+                setShowForgotConfirm(false);
+                handleSuccessConfirm(true);
+              }}
+            >
+              Ya, Saya Lupa
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {step === 'success' && (
         <div className="flex-1 bg-gradient-to-br from-teal-900 to-teal-950 text-white p-6 flex flex-col justify-center items-center absolute inset-0 z-40">
@@ -386,8 +483,56 @@ export default function CameraAbsen() {
 
           <Button 
             className="w-full max-w-sm h-14 bg-yellow-400 hover:bg-yellow-500 text-teal-950 font-bold rounded-2xl text-lg shadow-xl"
-            onClick={() => {
+            onClick={async () => {
+              const now = new Date();
+              const hrs = String(now.getHours()).padStart(2, '0');
+              const mins = String(now.getMinutes()).padStart(2, '0');
+              const secs = String(now.getSeconds()).padStart(2, '0');
+              const timeStr = `${hrs}:${mins}:${secs}`;
+
+              // Grace period check: jika check-out setelah GRACE_END_HOUR → tanya konfirmasi
+              const totalMin = now.getHours() * 60 + now.getMinutes();
+              if (isCheckOut && totalMin > GRACE_END_TOTAL_MIN) {
+                setShowForgotConfirm(true);
+                return;
+              }
+
               handleSuccessConfirm();
+
+              // Simpan ke Supabase
+              try {
+                const today = now.toISOString().split('T')[0];
+                if (isCheckOut) {
+                  const updateData: Record<string, any> = { time_out: timeStr };
+                  if (forgotConfirmed) {
+                    updateData.is_forgot_clock_out = true;
+                  }
+                  await supabase
+                    .from('attendance_records')
+                    .update(updateData)
+                    .eq('user_id', user?.id)
+                    .eq('date', today);
+                  clearTodayAttendance();
+                } else if (user?.id) {
+                  const hourNum = now.getHours();
+                  const minNum = now.getMinutes();
+                  const isLateTime = hourNum > 8 || (hourNum === 8 && minNum > 0);
+                  await supabase
+                    .from('attendance_records')
+                    .insert({
+                      user_id: user.id,
+                      date: today,
+                      time_in: timeStr,
+                      status: isLateTime ? 'telat' : 'hadir',
+                      location_lat: userLat,
+                      location_lng: userLng,
+                      photo_url: photo,
+                    });
+                }
+              } catch (e) {
+                console.error('Gagal simpan absen ke database:', e);
+              }
+
               navigate('/dashboard');
             }}
           >

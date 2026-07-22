@@ -7,9 +7,18 @@ import { cn } from '../lib/utils';
 import { GlassNavbar } from '../components/GlassNavbar';
 
 export function AdminLayout() {
-  const { user } = useAuth();
+  const { user, isAuthReady } = useAuth();
   const outlet = useOutlet();
   const location = useLocation();
+
+  // 🔄 Tunggu auth selesai di-load (session check) sebelum redirect
+  if (!isAuthReady) {
+    return (
+      <div className="min-h-screen bg-[#F9FAFB] flex items-center justify-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-[#113129]" />
+      </div>
+    );
+  }
 
   if (!user || user.role !== 'admin') {
     return <Navigate to="/admin/login" />;

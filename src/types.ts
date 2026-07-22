@@ -9,6 +9,8 @@ export interface User {
   status: 'active' | 'pending';
 }
 
+export type AttendanceStatus = 'hadir' | 'telat' | 'alpha' | 'cuti';
+
 export interface AttendanceRecord {
   id: string;
   userId: string;
@@ -16,10 +18,11 @@ export interface AttendanceRecord {
   date: string; // YYYY-MM-DD
   timeIn: string; // HH:mm
   timeOut?: string; // HH:mm
-  status: 'hadir' | 'telat' | 'alpha' | 'cuti';
+  status: AttendanceStatus;
   location: { lat: number; lng: number };
   locationId?: string;
   photoUrl?: string;
+  isForgotClockOut?: boolean;
 }
 
 export interface OfficeLocation {

@@ -103,9 +103,10 @@ export default function EmployeeLogin() {
                   Password harus: 5+ karakter, huruf besar, angka, karakter spesial (!@#$%^&* dll)
                 </p>
               </div>
-              <div className="flex justify-end gap-2 mt-1">
-                <button type="button" onClick={() => { setId('1'); setPassword('password123'); }} className="text-xs text-teal-600 font-medium hover:underline" disabled={loading}>Demo Budi (1)</button>
-                <button type="button" onClick={() => { setId('3'); setPassword('password123'); }} className="text-xs text-teal-600 font-medium hover:underline" disabled={loading}>Demo Agus (3)</button>
+              <div className="flex justify-end gap-2 mt-1 flex-wrap">
+                <button type="button" onClick={() => { setId('budi@geoface.com'); setPassword('Test@123'); }} className="text-xs text-teal-600 font-medium hover:underline" disabled={loading}>Demo Budi</button>
+                <button type="button" onClick={() => { setId('agus@geoface.com'); setPassword('Test@123'); }} className="text-xs text-teal-600 font-medium hover:underline" disabled={loading}>Demo Agus</button>
+                <button type="button" onClick={() => { setId('siti@geoface.com'); setPassword('Test@123'); }} className="text-xs text-amber-600 font-medium hover:underline" disabled={loading}>Demo Siti (pending)</button>
               </div>
             </div>
             <Button 

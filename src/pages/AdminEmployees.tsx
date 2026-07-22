@@ -1,11 +1,12 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
+import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../components/ui/dialog';
 import { Label } from '../components/ui/label';
 import { Input } from '../components/ui/input';
-import { mockUsers, mockAttendance, mockLocations } from '../lib/mockData';
+
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 import { Check, X, Edit, Trash2, Clock, UserCog, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, MapPin, CheckCircle2, XCircle, Calendar } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
@@ -14,9 +15,11 @@ import { User, AttendanceRecord } from '../types';
 import { Combobox } from '../components/ui/combobox';
 
 export default function AdminEmployees() {
+  const { locations } = useAuth();
   const [searchParams] = useSearchParams();
-  const [users, setUsers] = useState<User[]>(mockUsers.filter(u => u.role === 'employee'));
-  const [attendances, setAttendances] = useState<AttendanceRecord[]>(mockAttendance);
+  const [users, setUsers] = useState<User[]>([]);
+  const [attendances, setAttendances] = useState<AttendanceRecord[]>([]);
+  const [loading, setLoading] = useState(true);
   
   const [filterStatus, setFilterStatus] = useState(searchParams.get('status') || 'semua');
   const [filterLocationAll, setFilterLocationAll] = useState<string>('semua');
@@ -29,6 +32,43 @@ export default function AdminEmployees() {
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const itemsPerPage = 5;
 
+  // Fetch users & attendance from Supabase (no mock fallback)
+  useEffect(() => {
+    async function fetchAll() {
+      setLoading(true);
+      const { data: supabaseUsers } = await supabase
+        .from('users')
+        .select('*')
+        .eq('role', 'employee');
+      
+      const { data: supabaseAtt } = await supabase
+        .from('attendance_records')
+        .select('*');
+
+      if (supabaseUsers) {
+        setUsers(supabaseUsers.map((u: any) => ({
+          id: u.id, name: u.name, email: u.email || '',
+          role: u.role, status: u.status,
+          position: u.position || undefined,
+          division: u.division || undefined,
+          age: u.age ?? undefined,
+          locationId: u.location_id || undefined,
+        })));
+      }
+      if (supabaseAtt) {
+        setAttendances(supabaseAtt.map((a: any) => ({
+          id: a.id, userId: a.user_id, userName: a.user_name || '',
+          date: a.date, timeIn: a.time_in || '', timeOut: a.time_out || '',
+          status: a.status, location: a.location || { lat: 0, lng: 0 },
+          locationId: a.location_id || undefined,
+          photoUrl: a.photo_url || undefined,
+          isForgotClockOut: a.is_forgot_clock_out || false,
+        })));
+      }
+      setLoading(false);
+    }
+    fetchAll();
+  }, []);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -140,9 +180,34 @@ export default function AdminEmployees() {
     }
   };
 
-  const handleSaveAccount = () => {
+  const handleSaveAccount = async () => {
     if (editAccountDialog.user) {
-      setUsers(users.map(u => u.id === editAccountDialog.user?.id ? editAccountDialog.user! : u));
+      const updatedUser = editAccountDialog.user;
+      
+      // Update ke Supabase dulu — baru update state lokal kalau sukses
+      try {
+        const { error } = await supabase
+          .from('users')
+          .update({ 
+            name: updatedUser.name, 
+            position: updatedUser.position || null,
+            location_id: updatedUser.locationId || null
+          })
+          .eq('id', updatedUser.id);
+
+        if (error) {
+          console.error('Supabase error saat update akun:', error);
+          toast.error('Gagal menyimpan: ' + error.message);
+          return;
+        }
+      } catch (e) {
+        console.error('Exception saat update akun:', e);
+        toast.error('Gagal menyimpan data. Coba lagi.');
+        return;
+      }
+      
+      // Update state lokal hanya jika Supabase sukses
+      setUsers(users.map(u => u.id === updatedUser.id ? updatedUser : u));
       toast.success('Data akun berhasil disimpan');
       setEditAccountDialog({ open: false, user: null });
     }
@@ -158,7 +223,7 @@ export default function AdminEmployees() {
         
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
           <Combobox
-            options={[{ label: 'Semua Cabang', value: 'semua' }, ...mockLocations.map(l => ({ label: l.name, value: l.id }))]}
+            options={[{ label: 'Semua Cabang', value: 'semua' }, ...locations.map(l => ({ label: l.name, value: l.id }))]}
             value={filterLocationAll}
             onChange={setFilterLocationAll}
             placeholder="Pilih Cabang"
@@ -177,7 +242,7 @@ export default function AdminEmployees() {
         {currentUsers.map((user) => {
           const todayAtt = todaysAttendance.find(a => a.userId === user.id);
           const stats = userStats[user.id] || { hadir: 0, telat: 0, alpha: 0, cuti: 0 };
-          const userLocation = mockLocations.find(l => l.id === user.locationId)?.name || 'Cabang Tidak Diketahui';
+          const userLocation = locations.find(l => l.id === user.locationId)?.name || '-';
           const isActiveCard = activeCardId === user.id;
 
           return (
@@ -228,6 +293,7 @@ export default function AdminEmployees() {
                         {todayAtt?.status === 'telat' && <><Clock size={14} className="text-yellow-500" /><span className="text-yellow-600 text-xs font-bold">Telat Hari Ini</span></>}
                         {todayAtt?.status === 'cuti' && <><Calendar size={14} className="text-[#113129]" /><span className="text-[#113129] text-xs font-bold">Cuti Hari Ini</span></>}
                         {todayAtt?.status === 'alpha' && <><XCircle size={14} className="text-[#EF4444]" /><span className="text-[#EF4444] text-xs font-bold">Absen Hari Ini</span></>}
+                        {todayAtt?.isForgotClockOut && <><Clock size={14} className="text-orange-500" /><span className="text-orange-600 text-xs font-bold">Lupa Absen Keluar</span></>}
                     </div>
                     <div className="flex sm:hidden items-center gap-1.5 text-xs font-bold mt-1">
                       <span className="text-[#10B981] bg-[#10B981]/10 px-1.5 py-0.5 rounded-md">H: {stats.hadir}</span>
@@ -405,6 +471,15 @@ export default function AdminEmployees() {
                   onChange={(e) => setEditAccountDialog(prev => prev.user ? { ...prev, user: { ...prev.user, position: e.target.value } } : prev)} 
                   placeholder="Contoh: Tim Marketing, Teknisi Pipa..."
                   className="h-11 rounded-xl" 
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-sm font-bold text-gray-700">Lokasi</Label>
+                <Combobox
+                  options={locations.map(l => ({ label: l.name, value: l.id }))}
+                  value={editAccountDialog.user.locationId || ''}
+                  onChange={(value) => setEditAccountDialog(prev => prev.user ? { ...prev, user: { ...prev.user, locationId: value } } : prev)}
+                  placeholder="Pilih lokasi..."
                 />
               </div>
             </div>

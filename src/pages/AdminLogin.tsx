@@ -70,7 +70,7 @@ export default function AdminLogin() {
                 />
               </div>
               <div className="flex justify-end mt-1">
-                <button type="button" onClick={() => { setId('admin1'); setPassword('admin123'); }} className="text-xs text-teal-600 font-medium hover:underline">Gunakan Demo (admin1)</button>
+                <button type="button" onClick={() => { setId('admin@geoface.com'); setPassword('Admin@123'); }} className="text-xs text-teal-600 font-medium hover:underline">Demo Admin</button>
               </div>
             </div>
             <Button 

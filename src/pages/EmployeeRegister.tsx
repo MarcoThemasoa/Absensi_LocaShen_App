@@ -6,10 +6,11 @@ import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 import { UserPlus, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { mockLocations } from '../lib/mockData';
+import { useAuth } from '../context/AuthContext';
 import { validateRegisterForm } from '../lib/validators';
 
 export default function EmployeeRegister() {
+  const { locations } = useAuth();
   const [name, setName] = useState('');
   const [division, setDivision] = useState('');
   const [age, setAge] = useState('');
@@ -153,7 +154,7 @@ export default function EmployeeRegister() {
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <option value="" disabled>Pilih Cabang</option>
-                  {mockLocations.map(loc => (
+                  {locations.map(loc => (
                     <option key={loc.id} value={loc.id}>{loc.name}</option>
                   ))}
                 </select>

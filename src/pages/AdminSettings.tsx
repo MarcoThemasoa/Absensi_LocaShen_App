@@ -29,7 +29,7 @@ export default function AdminSettings() {
             
             <div className="space-y-1.5">
               <Label className="text-gray-500 text-xs uppercase tracking-wider font-semibold">Nama Lengkap</Label>
-              <Input readOnly value="Admin" className="bg-gray-50/50 border-gray-100 font-medium text-gray-900 h-11 rounded-xl" />
+              <Input readOnly value={user?.name || 'Admin'} className="bg-gray-50/50 border-gray-100 font-medium text-gray-900 h-11 rounded-xl" />
             </div>
             
             <div className="space-y-1.5">
