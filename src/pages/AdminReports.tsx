@@ -521,13 +521,11 @@ export default function AdminReports() {
                     <TableCell className="text-center flex justify-center items-center py-3">
                       {report.photoUrl ? (
                         <Dialog>
-                          <DialogTrigger>
-                            <button className="relative w-12 h-12 rounded-xl overflow-hidden cursor-pointer group shadow-sm border border-gray-200">
-                              <img src={report.photoUrl} alt="Bukti" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" />
-                              <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-[2px]">
-                                <Maximize2 size={18} className="text-white" />
-                              </div>
-                            </button>
+                          <DialogTrigger render={<button className="relative w-12 h-12 rounded-xl overflow-hidden cursor-pointer group shadow-sm border border-gray-200" />}>
+                            <img src={report.photoUrl} alt="Bukti" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" />
+                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-[2px]">
+                              <Maximize2 size={18} className="text-white" />
+                            </div>
                           </DialogTrigger>
                           <DialogContent className="sm:max-w-md rounded-3xl border-white/60 bg-white/90 backdrop-blur-2xl shadow-[0_20px_60px_rgb(0,0,0,0.1)] p-6">
                             <DialogHeader>

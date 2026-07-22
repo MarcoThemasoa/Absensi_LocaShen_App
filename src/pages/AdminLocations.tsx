@@ -76,6 +76,7 @@ export default function AdminLocations() {
   // Edit location state
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editForm, setEditForm] = useState({ name: '', address: '', lat: '', lng: '', radius: '' });
+  const [searchName, setSearchName] = useState('');
   const [editSearchQuery, setEditSearchQuery] = useState('');
   const [editSearchResults, setEditSearchResults] = useState<{lat: string; lng: string; display_name: string}[]>([]);
   const [editSelectedSearchIdx, setEditSelectedSearchIdx] = useState<number | null>(null);
@@ -309,6 +310,7 @@ export default function AdminLocations() {
           userId: user.id,
           userName: user.name,
           timeIn: todayAtt?.timeIn || null,
+          timeOut: todayAtt?.timeOut || null,
           status: todayAtt?.status || 'belum_absen',
         };
       })
@@ -559,64 +561,101 @@ export default function AdminLocations() {
                 </div>
 
                 {locationDetails.employeeList.length > 0 ? (
-                  <div className="overflow-x-auto rounded-xl border border-gray-100">
-                    <div>
-                      <Table className="w-full">
-                        <TableHeader className="bg-gray-50">
-                          <TableRow className="border-b border-gray-100">
-                            <TableHead className="font-bold text-gray-900 text-left pl-3">Nama</TableHead>
-                            <TableHead className="font-bold text-gray-900 text-center">Waktu</TableHead>
-                            <TableHead className="font-bold text-gray-900 text-center pr-3">Status</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {locationDetails.employeeList
-                            .slice(attendancePage * attendancesPerPage, (attendancePage + 1) * attendancesPerPage)
-                            .map(emp => (
-                            <TableRow key={emp.userId} className="border-b border-gray-50 hover:bg-gray-50/50">
-                              <TableCell className="font-bold text-gray-900 text-left pl-3">{emp.userName}</TableCell>
-                              <TableCell className="text-gray-600 text-center">{emp.timeIn || '-'}</TableCell>
-                              <TableCell className="text-center pr-3">
-                                {emp.status === 'hadir' && <span className="inline-flex items-center rounded-lg bg-green-50 px-2 py-1 text-xs font-bold uppercase tracking-wider text-green-700">Hadir</span>}
-                                {emp.status === 'telat' && <span className="inline-flex items-center rounded-lg bg-yellow-50 px-2 py-1 text-xs font-bold uppercase tracking-wider text-yellow-700">Telat</span>}
-                                {emp.status === 'cuti' && <span className="inline-flex items-center rounded-lg bg-blue-50 px-2 py-1 text-xs font-bold uppercase tracking-wider text-blue-700">Cuti</span>}
-                                {emp.status === 'alpha' && <span className="inline-flex items-center rounded-lg bg-red-50 px-2 py-1 text-xs font-bold uppercase tracking-wider text-red-700">Alpha</span>}
-                                {emp.status === 'belum_absen' && <span className="inline-flex items-center rounded-lg bg-gray-100 px-2 py-1 text-xs font-bold uppercase tracking-wider text-gray-500">Belum Absen</span>}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
+                  <>
+                    {/* Search bar */}
+                    <div className="relative mb-4">
+                      <input
+                        type="text"
+                        value={searchName}
+                        onChange={(e) => {
+                          setSearchName(e.target.value);
+                          setAttendancePage(0);
+                        }}
+                        placeholder="Cari nama karyawan..."
+                        className="w-full h-11 pl-10 pr-4 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all"
+                      />
+                      <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
                     </div>
-                  </div>
+
+                    <div className="overflow-x-auto rounded-xl border border-gray-100">
+                      <div>
+                        <Table className="w-full">
+                          <TableHeader className="bg-gray-50">
+                            <TableRow className="border-b border-gray-100">
+                              <TableHead className="font-bold text-gray-900 text-left pl-3">Nama</TableHead>
+                              <TableHead className="font-bold text-gray-900 text-center">Waktu</TableHead>
+                              <TableHead className="font-bold text-gray-900 text-center pr-3">Status</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {(searchName
+                              ? locationDetails.employeeList.filter(e =>
+                                  e.userName.toLowerCase().includes(searchName.toLowerCase())
+                                )
+                              : locationDetails.employeeList
+                            )
+                              .slice(attendancePage * attendancesPerPage, (attendancePage + 1) * attendancesPerPage)
+                              .map(emp => (
+                              <TableRow key={emp.userId} className="border-b border-gray-50 hover:bg-gray-50/50">
+                                <TableCell className="font-bold text-gray-900 text-left pl-3">{emp.userName}</TableCell>
+                                <TableCell className="text-gray-600 text-center">
+                                  {emp.timeIn
+                                    ? `${emp.timeIn.slice(0, 5)}${emp.timeOut ? ` - ${emp.timeOut.slice(0, 5)}` : ''}`
+                                    : '-'}
+                                </TableCell>
+                                <TableCell className="text-center pr-3">
+                                  {emp.status === 'hadir' && <span className="inline-flex items-center rounded-lg bg-green-50 px-2 py-1 text-xs font-bold uppercase tracking-wider text-green-700">Hadir</span>}
+                                  {emp.status === 'telat' && <span className="inline-flex items-center rounded-lg bg-yellow-50 px-2 py-1 text-xs font-bold uppercase tracking-wider text-yellow-700">Telat</span>}
+                                  {emp.status === 'cuti' && <span className="inline-flex items-center rounded-lg bg-blue-50 px-2 py-1 text-xs font-bold uppercase tracking-wider text-blue-700">Cuti</span>}
+                                  {emp.status === 'alpha' && <span className="inline-flex items-center rounded-lg bg-red-50 px-2 py-1 text-xs font-bold uppercase tracking-wider text-red-700">Alpha</span>}
+                                  {emp.status === 'belum_absen' && <span className="inline-flex items-center rounded-lg bg-gray-100 px-2 py-1 text-xs font-bold uppercase tracking-wider text-gray-500">Belum Absen</span>}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  </>
                 ) : (
                   <p className="text-center text-gray-500 font-medium py-4">Belum ada karyawan yang terdaftar di lokasi ini.</p>
                 )}
-                {locationDetails.employeeList.length > attendancesPerPage && (
-                  <div className="flex items-center justify-center gap-2 mt-4">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="rounded-xl h-8 w-8"
-                      onClick={() => setAttendancePage(p => Math.max(0, p - 1))}
-                      disabled={attendancePage === 0}
-                    >
-                      <ChevronRight size={14} className="rotate-180" />
-                    </Button>
-                    <span className="text-sm font-medium text-gray-500">
-                      {attendancePage + 1} / {Math.ceil(locationDetails.employeeList.length / attendancesPerPage)}
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="rounded-xl h-8 w-8"
-                      onClick={() => setAttendancePage(p => Math.min(Math.ceil(locationDetails.employeeList.length / attendancesPerPage) - 1, p + 1))}
-                      disabled={attendancePage >= Math.ceil(locationDetails.employeeList.length / attendancesPerPage) - 1}
-                    >
-                      <ChevronRight size={14} />
-                    </Button>
-                  </div>
-                )}
+
+                {/* Pagination — use filtered list count */}
+                {(() => {
+                  const filteredList = searchName
+                    ? locationDetails.employeeList.filter(e =>
+                        e.userName.toLowerCase().includes(searchName.toLowerCase())
+                      )
+                    : locationDetails.employeeList;
+                  return filteredList.length > attendancesPerPage && (
+                    <div className="flex items-center justify-center gap-2 mt-4">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="rounded-xl h-8 w-8"
+                        onClick={() => setAttendancePage(p => Math.max(0, p - 1))}
+                        disabled={attendancePage === 0}
+                      >
+                        <ChevronRight size={14} className="rotate-180" />
+                      </Button>
+                      <span className="text-sm font-medium text-gray-500">
+                        {attendancePage + 1} / {Math.ceil(filteredList.length / attendancesPerPage)}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="rounded-xl h-8 w-8"
+                        onClick={() => setAttendancePage(p => Math.min(Math.ceil(filteredList.length / attendancesPerPage) - 1, p + 1))}
+                        disabled={attendancePage >= Math.ceil(filteredList.length / attendancesPerPage) - 1}
+                      >
+                        <ChevronRight size={14} />
+                      </Button>
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
 

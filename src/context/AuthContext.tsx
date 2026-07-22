@@ -145,25 +145,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     initLocationCache();
 
-    // Restore session on mount — fetch locations dulu baru profile
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      await fetchLocations();
-      setSession(session);
-      if (session?.user) {
-        const profile = await fetchProfile(session.user.id);
-        if (profile) {
-          setUser(profile);
-          await initializeAttendance(session.user.id);
-        }
-      }
-      // Auth sudah siap — beri tahu layout agar tidak redirect ke login
-      setIsAuthReady(true);
-    });
-
-    // Listen for auth changes (login, logout, token refresh)
+    // Listen for auth changes — this fires INITIAL_SESSION on mount,
+    // so no need for a separate getSession() call.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      async (event, session) => {
+        // Token refresh doesn't change user data — skip to avoid duplicate queries
+        if (event === 'TOKEN_REFRESHED') return;
+
         setSession(session);
+
         if (session?.user) {
           await fetchLocations();
           const profile = await fetchProfile(session.user.id);
@@ -173,7 +163,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         } else {
           setUser(null);
+          setTodayAttendance(null);
+          localStorage.removeItem('todayAttendance');
         }
+
         setIsAuthReady(true);
       }
     );

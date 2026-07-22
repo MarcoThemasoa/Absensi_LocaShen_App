@@ -8,7 +8,7 @@ import { Input } from '../components/ui/input';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { cachedQuery, invalidateCache } from '../lib/supabaseCache';
-import { Check, X, Edit, Trash2, Clock, UserCog, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, MapPin, CheckCircle2, XCircle, Calendar } from 'lucide-react';
+import { Check, X, Edit, Trash2, Clock, UserCog, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, MapPin, CheckCircle2, XCircle, Calendar, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
 import { User, AttendanceRecord } from '../types';
@@ -30,6 +30,7 @@ export default function AdminEmployees() {
   const [editAccountDialog, setEditAccountDialog] = useState<{ open: boolean, user: User | null }>({ open: false, user: null });
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean, userId: string | null }>({ open: false, userId: null });
   const [currentPage, setCurrentPage] = useState(1);
+  const [searchName, setSearchName] = useState('');
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const itemsPerPage = 5;
 
@@ -100,6 +101,12 @@ export default function AdminEmployees() {
     if (filterLocationAll !== 'semua') {
       result = result.filter(user => user.locationId === filterLocationAll);
     }
+
+    if (searchName.trim()) {
+      result = result.filter(user =>
+        user.name.toLowerCase().includes(searchName.toLowerCase().trim())
+      );
+    }
     
     // Sort so pending users are at the top
     return [...result].sort((a, b) => {
@@ -107,7 +114,7 @@ export default function AdminEmployees() {
       if (a.status !== 'pending' && b.status === 'pending') return 1;
       return 0;
     });
-  }, [users, filterStatus, todaysAttendance, filterLocationAll]);
+  }, [users, filterStatus, todaysAttendance, filterLocationAll, searchName]);
 
   const userStats = useMemo(() => {
     const stats: Record<string, { hadir: number, telat: number, alpha: number, cuti: number }> = {};
@@ -224,7 +231,7 @@ export default function AdminEmployees() {
         
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
           <Combobox
-            options={[{ label: 'Semua Cabang', value: 'semua' }, ...locations.map(l => ({ label: l.name, value: l.id }))]}
+            options={[{ label: 'Semua Cabang', value: 'semua' }, ...locations.map(l => ({ label: `Lokasi: ${l.name}`, value: l.id }))]}
             value={filterLocationAll}
             onChange={setFilterLocationAll}
             placeholder="Pilih Cabang"
@@ -237,6 +244,18 @@ export default function AdminEmployees() {
             <Button variant={filterStatus === 'cuti' ? 'default' : 'outline'} className={`rounded-xl shrink-0 ${filterStatus === 'cuti' ? 'bg-[#113129] text-white' : 'text-[#113129]'}`} size="sm" onClick={() => setFilterStatus('cuti')}>Cuti</Button>
           </div>
         </div>
+      </div>
+
+      {/* Search bar */}
+      <div className="relative">
+        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <input
+          type="text"
+          value={searchName}
+          onChange={(e) => { setSearchName(e.target.value); setCurrentPage(1); }}
+          placeholder="Cari nama karyawan..."
+          className="w-full h-11 pl-10 pr-4 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all"
+        />
       </div>
 
       <div className="flex flex-col gap-4">
