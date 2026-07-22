@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { CheckCircle, AlertCircle, Calendar } from 'lucide-react';
 import { format } from 'date-fns';
-import { id } from 'date-fns/locale';
+import { indonesianLocale } from '../lib/date-locale';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Link } from 'react-router-dom';
@@ -117,7 +117,7 @@ export default function AdminDashboard() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-gray-900 drop-shadow-sm">Dashboard Utama</h1>
-          <p className="text-gray-500 font-medium mt-1">Ringkasan metrik absensi harian ({format(new Date(), 'dd MMMM yyyy', { locale: id })})</p>
+          <p className="text-gray-500 font-medium mt-1">Ringkasan metrik absensi harian ({format(new Date(), 'dd MMMM yyyy', { locale: indonesianLocale })})</p>
         </div>
         <div>
           <Combobox

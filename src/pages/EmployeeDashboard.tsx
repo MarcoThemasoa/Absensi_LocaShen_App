@@ -5,7 +5,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { MapPin, ChevronRight, ScanFace, CheckCircle2, AlertCircle, Loader2, Clock, X } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
-import { id } from 'date-fns/locale';
+import { indonesianLocale } from '../lib/date-locale';
 import { supabase } from '../lib/supabase';
 
 export default function EmployeeDashboard() {
@@ -109,7 +109,7 @@ export default function EmployeeDashboard() {
           </div>
           
           <div className="text-center py-2">
-            <p className="text-sm font-medium text-teal-200 mb-1">{format(time, 'EEEE, d MMMM yyyy', { locale: id })}</p>
+            <p className="text-sm font-medium text-teal-200 mb-1">{format(time, 'EEEE, d MMMM yyyy', { locale: indonesianLocale })}</p>
             <p className="text-6xl font-bold tracking-tighter drop-shadow-md">{format(time, 'HH:mm')}</p>
           </div>
         </div>
@@ -248,7 +248,7 @@ export default function EmployeeDashboard() {
             {myRecentRecords.length > 0 ? myRecentRecords.map((record) => (
               <div key={record.id} className="bg-white p-4 rounded-2xl drop-shadow-sm border border-gray-100 flex items-center justify-between shadow-[0_2px_10px_rgb(0,0,0,0.02)]">
                 <div>
-                  <p className="font-bold text-gray-900 text-sm">{format(parseISO(record.date), 'dd MMM yyyy', { locale: id })}</p>
+                  <p className="font-bold text-gray-900 text-sm">{format(parseISO(record.date), 'dd MMM yyyy', { locale: indonesianLocale })}</p>
                   <p className="text-xs text-gray-500 mt-1 font-medium">Masuk: {record.timeIn} {record.timeOut ? `• Keluar: ${record.timeOut}` : ''}</p>
                 </div>
                 <div className="flex items-center gap-2">

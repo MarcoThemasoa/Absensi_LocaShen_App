@@ -8,9 +8,9 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from '@vercel/speed-insights/react';
 
-import EmployeeLogin from './pages/EmployeeLogin';
-import EmployeeRegister from './pages/EmployeeRegister';
-import AdminLogin from './pages/AdminLogin';
+const EmployeeLogin = lazy(() => import('./pages/EmployeeLogin'));
+const EmployeeRegister = lazy(() => import('./pages/EmployeeRegister'));
+const AdminLogin = lazy(() => import('./pages/AdminLogin'));
 
 const EmployeeDashboard = lazy(() => import('./pages/EmployeeDashboard'));
 const CameraAbsen = lazy(() => import('./pages/CameraAbsen'));

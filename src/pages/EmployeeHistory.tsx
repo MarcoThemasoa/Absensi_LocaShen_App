@@ -4,7 +4,7 @@ import { Clock, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight } from 'luc
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { format, parseISO } from 'date-fns';
-import { id } from 'date-fns/locale';
+import { indonesianLocale } from '../lib/date-locale';
 import { cn } from '../lib/utils';
 
 export default function EmployeeHistory() {
@@ -94,7 +94,7 @@ export default function EmployeeHistory() {
                 {record.status === 'hadir' ? <CheckCircle2 size={24} /> : <AlertCircle size={24} />}
               </div>
               <div>
-                <p className="font-bold text-gray-900">{format(parseISO(record.date), 'dd MMM yyyy', { locale: id })}</p>
+                <p className="font-bold text-gray-900">{format(parseISO(record.date), 'dd MMM yyyy', { locale: indonesianLocale })}</p>
                 <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
                   <span className="flex items-center gap-1 font-medium"><Clock size={14} className="text-teal-600" /> {record.timeIn}</span>
                   {record.timeOut && <span className="flex items-center gap-1 font-medium">— {record.timeOut}</span>}

@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase';
 import { cachedQuery, invalidateCache } from '../lib/supabaseCache';
 import { Download, Search, Maximize2, ChevronLeft, ChevronRight, Activity, Clock, MapPin } from 'lucide-react';
 import { format, parseISO, subDays, isAfter, startOfDay } from 'date-fns';
-import { id } from 'date-fns/locale';
+import { indonesianLocale } from '../lib/date-locale';
 import { Combobox } from '../components/ui/combobox';
 import { AttendanceRecord } from '../types';
 
@@ -194,7 +194,7 @@ export default function AdminReports() {
     a.href = url;
     const filterName = (exportStartDate && exportEndDate) ? `${exportStartDate}_to_${exportEndDate}` : 'custom';
     
-    const dateStr = format(new Date(), 'dd-MMM-yyyy', { locale: id });
+    const dateStr = format(new Date(), 'dd-MMM-yyyy', { locale: indonesianLocale });
     a.download = `Laporan_Absensi_${filterName}_${dateStr}.csv`;
 
     document.body.appendChild(a);
@@ -238,7 +238,7 @@ export default function AdminReports() {
                     <div className="flex items-center gap-3 text-xs text-gray-500">
                       <span className="flex items-center gap-1">
                         <Clock size={12} className="text-[#113129] shrink-0" />
-                        {format(parseISO(log.timestamp), 'dd MMM yy HH:mm', { locale: id })}
+                        {format(parseISO(log.timestamp), 'dd MMM yy HH:mm', { locale: indonesianLocale })}
                       </span>
                       {log.locationName && (
                         <span className="flex items-center gap-1">
@@ -299,7 +299,7 @@ export default function AdminReports() {
                    const url = URL.createObjectURL(blob);
                    const a = document.createElement('a');
                    a.href = url;
-                   const dateStr = format(new Date(), 'dd-MMM-yyyy', { locale: id });
+                   const dateStr = format(new Date(), 'dd-MMM-yyyy', { locale: indonesianLocale });
                    a.download = `Log_Aktivitas_${dateStr}.csv`;
                    document.body.appendChild(a);
                    a.click();
@@ -394,7 +394,7 @@ export default function AdminReports() {
                       <div className="flex items-start justify-between gap-2">
                         <span className="font-bold text-gray-900">{report.userName}</span>
                         <span className="shrink-0 text-[10px] font-semibold text-gray-500 bg-gray-100 rounded-full px-2.5 py-1 whitespace-nowrap">
-                          {format(parseISO(report.date), 'dd MMM yyyy', { locale: id })}
+                          {format(parseISO(report.date), 'dd MMM yyyy', { locale: indonesianLocale })}
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-2">
@@ -430,7 +430,7 @@ export default function AdminReports() {
                       <div className="grid grid-cols-2 gap-3 text-sm">
                         <div>
                           <p className="text-gray-400 font-medium text-xs">Tanggal</p>
-                          <p className="font-bold text-gray-900">{format(parseISO(report.date), 'dd MMM yyyy', { locale: id })}</p>
+                          <p className="font-bold text-gray-900">{format(parseISO(report.date), 'dd MMM yyyy', { locale: indonesianLocale })}</p>
                         </div>
                         <div>
                           <p className="text-gray-400 font-medium text-xs">Status</p>
@@ -494,7 +494,7 @@ export default function AdminReports() {
                 {paginatedReports.length > 0 ? paginatedReports.map((report) => (
                   <TableRow key={report.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                     <TableCell className="font-bold text-gray-900 text-center">
-                      {format(parseISO(report.date), 'dd MMM yyyy', { locale: id })}
+                      {format(parseISO(report.date), 'dd MMM yyyy', { locale: indonesianLocale })}
                     </TableCell>
                     <TableCell className="font-medium text-gray-900 text-center">{report.userName}</TableCell>
                     <TableCell className="font-medium text-gray-600 text-center text-xs">
