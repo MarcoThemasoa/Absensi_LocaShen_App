@@ -5,6 +5,8 @@ import { EmployeeLayout } from './layouts/EmployeeLayout';
 import { AdminLayout } from './layouts/AdminLayout';
 import { Toaster } from './components/ui/sonner';
 import { AnimatePresence, motion } from 'motion/react';
+import { Analytics } from '@vercel/analytics/react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 import EmployeeLogin from './pages/EmployeeLogin';
 import EmployeeRegister from './pages/EmployeeRegister';
@@ -82,6 +84,8 @@ export default function App() {
         <AnimatedRoutes />
       </Router>
       <Toaster />
+      <Analytics />
+      <SpeedInsights />
     </AuthProvider>
   );
 }
