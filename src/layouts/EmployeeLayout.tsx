@@ -15,6 +15,7 @@ export function EmployeeLayout() {
       leftItems={[{ name: 'Riwayat', path: '/riwayat', icon: History }]}
       centerItem={{ name: 'Beranda', path: '/dashboard', icon: Home }}
       rightItems={[{ name: 'Profil', path: '/profil', icon: UserCircle }]}
+      equalSpacing
     />
   );
 
