@@ -26,7 +26,7 @@ export function AdminLayout() {
         {/* Desktop Sidebar — tetap terlihat selama loading */}
         <aside className="hidden md:flex w-64 bg-[#113129] text-white flex-col fixed inset-y-0 z-50 shadow-2xl border-r border-[#1a4a3d]/50">
           <div className="px-8 pt-10 pb-6 flex flex-col items-center">
-            <h1 className="flex flex-col items-center gap-1">
+            <h1 className="flex flex-col items-center gap-1 ">
               <span className="text-2xl font-bold tracking-[0.15em] text-yellow-400 leading-tight">GEOFACE</span>
               <span className="text-[11px] font-normal tracking-[0.3em] text-yellow-200/60">ADMIN</span>
             </h1>
@@ -110,23 +110,21 @@ export function AdminLayout() {
         </nav>
       </aside>
 
-      {/* Main Content */}
-      <main className={cn("flex-1 overflow-auto md:ml-64 pb-32 md:pb-12 relative z-10", location.pathname === '/admin/pengaturan' ? "p-0" : "")}>
+      {/* Main Content — layout stabil, tidak berubah antar route */}
+      <main className="flex-1 overflow-auto md:ml-64 pb-32 md:pb-12 relative z-10">
         {/* Mobile Header */}
-        {location.pathname !== '/admin/pengaturan' && (
-          <div className="md:hidden bg-[#113129] text-white px-8 pt-5 pb-4 sticky top-0 z-40 shadow-xl flex justify-center items-center rounded-b-[32px] mb-4 border-b border-white/10">
-            <h1 className="flex flex-col items-center gap-0.5">
-              <span className="text-base font-bold tracking-[0.15em] text-yellow-400 leading-tight">
-                GEOFACE
-              </span>
-              <span className="text-[10px] font-normal tracking-[0.3em] text-yellow-200/60">
-                ADMIN
-              </span>
-            </h1>
-          </div>
-        )}
+        <div className="md:hidden bg-[#113129] text-white px-8 pt-5 pb-4 sticky top-0 z-40 shadow-xl flex justify-center items-center rounded-b-[32px] mb-4 border-b border-white/10">
+          <h1 className="flex flex-col items-center gap-0.5">
+            <span className="text-base font-bold tracking-[0.15em] text-yellow-400 leading-tight">
+              GEOFACE
+            </span>
+            <span className="text-[10px] font-normal tracking-[0.3em] text-yellow-200/60">
+              ADMIN
+            </span>
+          </h1>
+        </div>
 
-        <div className={cn("max-w-7xl mx-auto space-y-6", location.pathname === '/admin/pengaturan' ? "p-0" : "p-6 md:p-10")}>
+        <div className="max-w-7xl mx-auto space-y-6 p-6 md:p-10">
           <AnimatePresence mode="wait">
             {outlet && React.cloneElement(outlet, { key: location.pathname })}
           </AnimatePresence>

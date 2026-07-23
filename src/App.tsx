@@ -65,11 +65,11 @@ function AnimatedRoutes() {
           {/* Admin Protected Routes */}
           <Route element={<AdminLayout />}>
             <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
-            <Route path="/admin/dashboard" element={<motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="h-full"><AdminDashboard /></motion.div>} />
-            <Route path="/admin/karyawan" element={<motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="h-full"><AdminEmployees /></motion.div>} />
-            <Route path="/admin/lokasi" element={<motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="h-full"><AdminLocations /></motion.div>} />
-            <Route path="/admin/laporan" element={<motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="h-full"><AdminReports /></motion.div>} />
-            <Route path="/admin/pengaturan" element={<motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="h-full"><AdminSettings /></motion.div>} />
+            <Route path="/admin/dashboard" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full"><AdminDashboard /></motion.div>} />
+            <Route path="/admin/karyawan" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full"><AdminEmployees /></motion.div>} />
+            <Route path="/admin/lokasi" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full"><AdminLocations /></motion.div>} />
+            <Route path="/admin/laporan" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full"><AdminReports /></motion.div>} />
+            <Route path="/admin/pengaturan" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full"><AdminSettings /></motion.div>} />
           </Route>
         </Routes>
       </Suspense>

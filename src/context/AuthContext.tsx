@@ -23,6 +23,7 @@ interface AuthContextType {
   login: (email: string, password: string, role: 'employee' | 'admin') => Promise<void>;
   logout: () => void;
   updateUser: (data: Partial<User>) => void;
+  updateUserProfile: (data: Partial<User>) => Promise<void>;
   recordCheckIn: (time: string) => void;
   recordCheckOut: (time: string, forgotClockOut?: boolean) => void;
   clearTodayAttendance: () => void;
@@ -62,7 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const fetchProfile = async (userId: string): Promise<User | null> => {
+  const fetchProfile = async (userId: string, authEmail?: string): Promise<User | null> => {
     const { data } = await supabase
       .from('users')
       .select('*')
@@ -74,12 +75,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return {
       id: data.id,
       name: data.name,
+      email: authEmail,
       role: data.role,
       status: data.status,
       position: data.position || undefined,
       division: data.division || undefined,
       age: data.age ?? undefined,
       locationId: data.location_id || undefined,
+      createdAt: data.created_at,
     };
   };
 
@@ -156,7 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (session?.user) {
           await fetchLocations();
-          const profile = await fetchProfile(session.user.id);
+          const profile = await fetchProfile(session.user.id, session.user.email || undefined);
           setUser(profile);
           if (profile) {
             await initializeAttendance(session.user.id);
@@ -208,7 +211,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await fetchLocations();
 
     // Fetch profile to validate role & status
-    const profile = await fetchProfile(data.user.id);
+    const profile = await fetchProfile(data.user.id, data.user.email || undefined);
     if (!profile) throw new Error('Profil tidak ditemukan.');
 
     if (profile.role !== role) {
@@ -239,6 +242,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (user) {
       setUser({ ...user, ...data });
     }
+  };
+
+  const updateUserProfile = async (data: Partial<User>) => {
+    if (!user) throw new Error('User not logged in');
+
+    const { error } = await supabase
+      .from('users')
+      .update({
+        name: data.name,
+        position: data.position,
+        division: data.division,
+        age: data.age,
+      })
+      .eq('id', user.id);
+
+    if (error) throw error;
+
+    // Update local state
+    setUser({ ...user, ...data });
   };
 
   const recordCheckIn = (time: string) => {
@@ -288,6 +310,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         logout,
         updateUser,
+        updateUserProfile,
         recordCheckIn,
         recordCheckOut,
         clearTodayAttendance,

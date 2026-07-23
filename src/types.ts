@@ -1,12 +1,14 @@
 export interface User {
   id: string;
   name: string;
+  email?: string;
   role: 'employee' | 'admin';
   position?: string;
   division?: string;
   age?: string | number;
   locationId?: string;
   status: 'active' | 'pending';
+  createdAt?: string;
 }
 
 export type AttendanceStatus = 'hadir' | 'telat' | 'alpha' | 'cuti';

@@ -7,6 +7,13 @@ import { format, parseISO } from 'date-fns';
 import { indonesianLocale } from '../lib/date-locale';
 import { cn } from '../lib/utils';
 
+/** Format time string → HH:mm (24 jam, leading zero) */
+function fmtTime(t: string | null | undefined): string {
+  if (!t) return '';
+  const [h, m] = t.split(':');
+  return `${h.padStart(2, '0')}:${(m || '00').padStart(2, '0')}`;
+}
+
 export default function EmployeeHistory() {
   const { user } = useAuth();
   
@@ -85,30 +92,30 @@ export default function EmployeeHistory() {
       
       <div className="p-4 space-y-3">
         {paginatedRecords.length > 0 ? paginatedRecords.map((record) => (
-          <div key={record.id} className="bg-white p-4 rounded-2xl drop-shadow-sm border border-gray-100 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className={cn(
-                "w-12 h-12 rounded-full flex items-center justify-center shrink-0",
-                record.status === 'hadir' ? "bg-green-100 text-green-600" : "bg-red-100 text-red-600"
-              )}>
-                {record.status === 'hadir' ? <CheckCircle2 size={24} /> : <AlertCircle size={24} />}
-              </div>
-              <div>
-                <p className="font-bold text-gray-900">{format(parseISO(record.date), 'dd MMM yyyy', { locale: indonesianLocale })}</p>
-                <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
-                  <span className="flex items-center gap-1 font-medium"><Clock size={14} className="text-teal-600" /> {record.timeIn}</span>
-                  {record.timeOut && <span className="flex items-center gap-1 font-medium">— {record.timeOut}</span>}
+          <div key={record.id} className="bg-white p-4 rounded-2xl drop-shadow-sm border border-gray-100 flex flex-col gap-2">
+            {record.is_forgot_clock_out && (
+              <span className="text-[10px] font-bold uppercase tracking-wider text-orange-600 leading-none">
+                ⚠ Lupa Keluar
+              </span>
+            )}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className={cn(
+                  "w-12 h-12 rounded-full flex items-center justify-center shrink-0",
+                  record.status === 'hadir' ? "bg-green-100 text-green-600" : "bg-red-100 text-red-600"
+                )}>
+                  {record.status === 'hadir' ? <CheckCircle2 size={24} /> : <AlertCircle size={24} />}
+                </div>
+                <div>
+                  <p className="font-bold text-gray-900">{format(parseISO(record.date), 'dd MMM yyyy', { locale: indonesianLocale })}</p>
+                  <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
+                    <span className="flex items-center gap-1 font-medium"><Clock size={14} className="text-teal-600" /> {fmtTime(record.timeIn)}</span>
+                  {record.timeOut && <span className="flex items-center gap-1 font-medium">— {fmtTime(record.timeOut)}</span>}
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="text-right flex flex-col items-end gap-1">
-              {record.is_forgot_clock_out && (
-                <span className="px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-orange-100 text-orange-700">
-                  Lupa Keluar
-                </span>
-              )}
               <span className={cn(
-                "px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider",
+                "px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider shrink-0",
                 record.status === 'hadir' ? "bg-green-100 text-green-700" : record.status === 'telat' ? "bg-yellow-100 text-yellow-700" : record.status === 'cuti' ? "bg-blue-100 text-blue-700" : "bg-red-100 text-red-700"
               )}>
                 {record.status}

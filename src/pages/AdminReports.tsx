@@ -9,6 +9,13 @@ import { cachedQuery, invalidateCache } from '../lib/supabaseCache';
 import { Download, Search, Maximize2, ChevronLeft, ChevronRight, Activity, Clock, MapPin } from 'lucide-react';
 import { format, parseISO, subDays, isAfter, startOfDay } from 'date-fns';
 import { indonesianLocale } from '../lib/date-locale';
+
+/** Format time string → HH:mm (24 jam, leading zero) */
+function fmtTime(t: string | null | undefined): string {
+  if (!t) return '-';
+  const [h, m] = t.split(':');
+  return `${h.padStart(2, '0')}:${(m || '00').padStart(2, '0')}`;
+}
 import { Combobox } from '../components/ui/combobox';
 import { AttendanceRecord } from '../types';
 
@@ -398,27 +405,29 @@ export default function AdminReports() {
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5 text-sm font-medium text-[#113129]">
+                        <div className="flex items-center gap-1.5 text-sm font-medium text-[#113129] min-w-0">
                           <MapPin size={14} className="shrink-0" />
-                          <span className="truncate">{locationName}</span>
+                          <span className="truncate max-w-[15ch]">{locationName}</span>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          {report.timeIn && <span className="text-xs text-gray-500">{report.timeIn}</span>}
-                          <div className="flex items-center gap-1">
-                            {report.isForgotClockOut && (
-                              <span className="inline-flex items-center rounded-md bg-orange-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-orange-700 ring-1 ring-inset ring-orange-600/20">LK</span>
-                            )}
-                            {report.status === 'hadir' ? (
-                              <span className="inline-flex items-center rounded-md bg-green-50 px-2 py-0.5 text-[10px] font-bold uppercase text-green-700 ring-1 ring-inset ring-green-600/20">H</span>
-                            ) : report.status === 'telat' ? (
-                              <span className="inline-flex items-center rounded-md bg-yellow-50 px-2 py-0.5 text-[10px] font-bold uppercase text-yellow-700 ring-1 ring-inset ring-yellow-600/20">T</span>
-                            ) : report.status === 'cuti' ? (
-                              <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase text-blue-700 ring-1 ring-inset ring-blue-600/20">C</span>
-                            ) : (
-                              <span className="inline-flex items-center rounded-md bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase text-red-700 ring-1 ring-inset ring-red-600/20">A</span>
-                            )}
-                          </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {report.isForgotClockOut && (
+                            <span className="inline-flex items-center rounded-md bg-orange-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-orange-700 ring-1 ring-inset ring-orange-600/20">LK</span>
+                          )}
+                          {report.status === 'hadir' ? (
+                            <span className="inline-flex items-center rounded-md bg-green-50 px-2 py-0.5 text-[10px] font-bold uppercase text-green-700 ring-1 ring-inset ring-green-600/20">H</span>
+                          ) : report.status === 'telat' ? (
+                            <span className="inline-flex items-center rounded-md bg-yellow-50 px-2 py-0.5 text-[10px] font-bold uppercase text-yellow-700 ring-1 ring-inset ring-yellow-600/20">T</span>
+                          ) : report.status === 'cuti' ? (
+                            <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase text-blue-700 ring-1 ring-inset ring-blue-600/20">C</span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-md bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase text-red-700 ring-1 ring-inset ring-red-600/20">A</span>
+                          )}
                         </div>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <Clock size={13} className="shrink-0 text-[#113129]" />
+                        <span>{fmtTime(report.timeIn)}</span>
+                        {report.timeOut && <span>— {fmtTime(report.timeOut)}</span>}
                       </div>
                     </div>
                   </DialogTrigger>
@@ -451,11 +460,11 @@ export default function AdminReports() {
                         </div>
                         <div>
                           <p className="text-gray-400 font-medium text-xs">Jam Masuk</p>
-                          <p className="font-bold text-gray-900">{report.timeIn || '-'}</p>
+                          <p className="font-bold text-gray-900">{fmtTime(report.timeIn)}</p>
                         </div>
                         <div>
                           <p className="text-gray-400 font-medium text-xs">Jam Keluar</p>
-                          <p className="font-bold text-gray-900">{report.timeOut || '-'}</p>
+                          <p className="font-bold text-gray-900">{fmtTime(report.timeOut)}</p>
                         </div>
                         <div className="col-span-2">
                           <p className="text-gray-400 font-medium text-xs">Cabang</p>
@@ -497,11 +506,11 @@ export default function AdminReports() {
                       {format(parseISO(report.date), 'dd MMM yyyy', { locale: indonesianLocale })}
                     </TableCell>
                     <TableCell className="font-medium text-gray-900 text-center">{report.userName}</TableCell>
-                    <TableCell className="font-medium text-gray-600 text-center text-xs">
+                    <TableCell className="font-medium text-gray-600 text-center text-xs max-w-[15ch] truncate">
                       {locations.find(l => l.id === report.locationId)?.name || '-'}
                     </TableCell>
-                    <TableCell className="font-medium text-gray-600 text-center">{report.timeIn || '-'}</TableCell>
-                    <TableCell className="font-medium text-gray-600 text-center">{report.timeOut || '-'}</TableCell>
+                    <TableCell className="font-medium text-gray-600 text-center">{fmtTime(report.timeIn)}</TableCell>
+                    <TableCell className="font-medium text-gray-600 text-center">{fmtTime(report.timeOut)}</TableCell>
                     <TableCell className="text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         {report.isForgotClockOut && (
