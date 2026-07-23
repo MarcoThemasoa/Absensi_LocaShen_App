@@ -5,13 +5,14 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
-import { Fingerprint, AlertCircle } from 'lucide-react';
+import { Fingerprint, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { validateLoginForm } from '../lib/validators';
 
 export default function EmployeeLogin() {
   const [id, setId] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const { user, login } = useAuth();
@@ -88,19 +89,30 @@ export default function EmployeeLogin() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="password">Password</Label>
-                <Input 
-                  id="password" 
-                  type="password"
-                  placeholder="Min 5 karakter, uppercase, angka, spesial" 
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    setValidationErrors([]);
-                  }}
-                  disabled={loading}
-                />
+                <div className="relative">
+                  <Input 
+                    id="password" 
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Min 5 karakter, uppercase, angka, spesial" 
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      setValidationErrors([]);
+                    }}
+                    disabled={loading}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  Password harus: 5+ karakter, huruf besar, angka, karakter spesial (!@#$%^&* dll)
+                  Password: 5+ karakter, huruf besar, huruf kecil, angka, 1+ karakter spesial (!@#$%^&*)
                 </p>
               </div>
               <div className="flex justify-end gap-2 mt-1 flex-wrap">

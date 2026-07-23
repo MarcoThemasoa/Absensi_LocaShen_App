@@ -61,7 +61,7 @@ export default function EmployeeHistory() {
 
 
     return (
-    <div className="flex flex-col min-h-full bg-gray-50 pb-32">
+    <div className="flex flex-col min-h-full bg-gray-50 pb-48 md:pb-0">
       <div className="bg-white px-5 pt-14 pb-6 shadow-sm border-b border-gray-100 sticky top-0 z-10 flex flex-col gap-6">
         <div>
           <h1 className="text-3xl font-extrabold text-gray-900">Riwayat Absensi</h1>
@@ -90,7 +90,7 @@ export default function EmployeeHistory() {
         </div>
       </div>
       
-      <div className="p-4 space-y-3">
+      <div className="p-4 space-y-3 pb-6">
         {paginatedRecords.length > 0 ? paginatedRecords.map((record) => (
           <div key={record.id} className="bg-white p-4 rounded-2xl drop-shadow-sm border border-gray-100 flex flex-col gap-2">
             {record.is_forgot_clock_out && (
@@ -129,7 +129,7 @@ export default function EmployeeHistory() {
         )}
         
         {totalPages > 1 && (
-          <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200 px-2">
+          <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200 px-2 mb-8">
             <button
               onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
               disabled={currentPage === 1}

@@ -7,6 +7,7 @@ import { MapPin, ChevronRight, ScanFace, CheckCircle2, AlertCircle, Loader2, Clo
 import { format, parseISO } from 'date-fns';
 import { indonesianLocale } from '../lib/date-locale';
 import { supabase } from '../lib/supabase';
+import { fmtHHmm } from '../lib/utils';
 
 export default function EmployeeDashboard() {
   const { user, todayAttendance, locations, yesterdayForgotClockOut, dismissYesterdayAlert } = useAuth();
@@ -90,9 +91,9 @@ export default function EmployeeDashboard() {
   }, [todayAttendance?.checkInTime, todayAttendance?.checkInTimestamp, todayAttendance?.checkOutTime]);
 
   return (
-    <div className="flex flex-col min-h-full bg-slate-50 pb-32 relative">
+    <div className="flex flex-col min-h-full bg-slate-50 pb-32 md:pb-0 relative">
       {/* Top Section with Gradient & Glassmorphism */}
-      <div className="bg-gradient-to-br from-teal-900 via-teal-800 to-teal-950 text-white p-6 pb-24 rounded-b-[40px] drop-shadow-xl relative overflow-hidden">
+      <div className="bg-gradient-to-br from-teal-900 via-teal-800 to-teal-950 text-white p-6 pb-24 rounded-b-[40px] md:rounded-[40px] drop-shadow-xl relative overflow-hidden">
         {/* Decorative background elements */}
         <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 rounded-full bg-teal-500/20 blur-3xl"></div>
         <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-48 h-48 rounded-full bg-yellow-400/20 blur-3xl"></div>
@@ -153,7 +154,7 @@ export default function EmployeeDashboard() {
                     </div>
                     <div>
                       <p className="text-xs text-teal-600 font-semibold uppercase tracking-wider">Absen Masuk</p>
-                      <p className="font-bold text-teal-900 text-lg">{todayAttendance.checkInTime}</p>
+                      <p className="font-bold text-teal-900 text-lg">{fmtHHmm(todayAttendance.checkInTime)}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -249,7 +250,7 @@ export default function EmployeeDashboard() {
               <div key={record.id} className="bg-white p-4 rounded-2xl drop-shadow-sm border border-gray-100 flex items-center justify-between shadow-[0_2px_10px_rgb(0,0,0,0.02)]">
                 <div>
                   <p className="font-bold text-gray-900 text-sm">{format(parseISO(record.date), 'dd MMM yyyy', { locale: indonesianLocale })}</p>
-                  <p className="text-xs text-gray-500 mt-1 font-medium">Masuk: {record.timeIn} {record.timeOut ? `• Keluar: ${record.timeOut}` : ''}</p>
+                  <p className="text-xs text-gray-500 mt-1 font-medium">Masuk: {fmtHHmm(record.timeIn)} {record.timeOut ? `• Keluar: ${fmtHHmm(record.timeOut)}` : ''}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   {record.is_forgot_clock_out && (

@@ -5,13 +5,16 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
-import { ShieldCheck } from 'lucide-react';
+import { ShieldCheck, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
+import { validatePassword } from '../lib/validators';
 
 export default function AdminLogin() {
   const [id, setId] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const { user, login } = useAuth();
   const navigate = useNavigate();
 
@@ -23,13 +26,25 @@ export default function AdminLogin() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate
+    const validation = validatePassword(password);
+    if (!validation.isValid) {
+      setValidationErrors(validation.errors);
+      validation.errors.forEach(error => toast.error(error));
+      return;
+    }
+
+    setValidationErrors([]);
     setLoading(true);
     try {
       await login(id, password, 'admin');
       toast.success('Login Admin berhasil');
       navigate('/admin/dashboard');
     } catch (error: any) {
-      toast.error(error.message || 'Gagal login admin');
+      const errorMessage = error.message || 'Gagal login admin';
+      setValidationErrors([errorMessage]);
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -54,25 +69,57 @@ export default function AdminLogin() {
                   id="adminId" 
                   placeholder="Masukkan ID Admin / Email" 
                   value={id}
-                  onChange={(e) => setId(e.target.value)}
+                  onChange={(e) => {
+                    setId(e.target.value);
+                    setValidationErrors([]);
+                  }}
                   required
                 />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="password">Password</Label>
-                <Input 
-                  id="password" 
-                  type="password"
-                  placeholder="Masukkan Password" 
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
+                <div className="relative">
+                  <Input 
+                    id="password" 
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Masukkan Password" 
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      setValidationErrors([]);
+                    }}
+                    required
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Password: 5+ karakter, huruf besar/kecil, angka, 1+ karakter spesial (!@#$%^&*)
+                </p>
               </div>
               <div className="flex justify-end mt-1">
                 <button type="button" onClick={() => { setId('admin@geoface.com'); setPassword('Admin@123'); }} className="text-xs text-teal-600 font-medium hover:underline">Demo Admin</button>
               </div>
             </div>
+
+            {validationErrors.length > 0 && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg space-y-1">
+                {validationErrors.map((error, idx) => (
+                  <p key={idx} className="text-xs text-red-700 flex items-start gap-2">
+                    <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                    <span>{error}</span>
+                  </p>
+                ))}
+              </div>
+            )}
+
             <Button 
               type="submit" 
               className="w-full bg-teal-950 hover:bg-teal-900 text-white" 

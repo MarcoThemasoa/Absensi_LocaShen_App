@@ -46,6 +46,13 @@ export default function AdminDashboard() {
   const [weeklyChart, setWeeklyChart] = useState<DailyStat[]>([]);
   const [chartRange, setChartRange] = useState<'7hari' | '30hari'>('7hari');
   const [loading, setLoading] = useState(true);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const today = format(new Date(), 'yyyy-MM-dd');
 
@@ -90,15 +97,17 @@ export default function AdminDashboard() {
               .eq('status', 'active'),
           ),
 
-      // 3. Chart data for the selected range (date + status)
+      // 3. Chart data for the selected range (date + status) — filter by location too
       cachedQuery<any[]>(
-        `dashboard:chart:${days[0].date}:${days[days.length - 1].date}`,
-        () =>
-          supabase
+        `dashboard:chart:${days[0].date}:${days[days.length - 1].date}:loc${selectedLocationId}`,
+        () => {
+          let query = supabase
             .from('attendance_records')
-            .select('date, status')
+            .select('date, status, user_id')
             .gte('date', days[0].date)
-            .lte('date', days[days.length - 1].date),
+            .lte('date', days[days.length - 1].date);
+          return query;
+        },
       ),
     ]);
 
@@ -133,11 +142,16 @@ export default function AdminDashboard() {
 
     setStats({ hadir, telat, cuti, alpha });
 
-    // Build chart data
+    // Build chart data — filter by location's employees if a specific branch is selected
+    const locationUserIds = selectedLocationId !== 'semua'
+      ? new Set(activeEmployeeIds)
+      : null;
     const chartMap = new Map(
       days.map((d) => [d.date, { name: d.name, hadir: 0, telat: 0, alpha: 0 }]),
     );
     for (const r of chartAtt) {
+      // Skip records not belonging to the selected location's employees
+      if (locationUserIds && !locationUserIds.has(r.user_id)) continue;
       const row = chartMap.get(r.date);
       if (row && r.status !== 'cuti') {
         if (r.status === 'hadir') row.hadir++;
@@ -300,39 +314,39 @@ export default function AdminDashboard() {
       {/* ── CHART + MAP — always rendered with reserved space (min-h prevents CLS) ── */}
       <div className="grid grid-cols-1 gap-8 mt-8">
         <Card className="rounded-3xl border border-white/60 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] col-span-1 min-h-96 flex flex-col p-6">
-          <div className="flex items-start justify-between gap-4 mb-2">
-            <div>
+          <div className="mb-2">
+            <div className="flex items-start justify-between gap-4">
               <h3 className="font-bold text-2xl text-gray-900 tracking-tight">
                 Grafik Kehadiran
               </h3>
-              <p className="text-gray-400 text-sm mt-1.5 font-medium">
-                {selectedLocationId === 'semua'
-                  ? 'Menampilkan data dari semua cabang'
-                  : `Menampilkan data dari: ${locations.find((l) => l.id === selectedLocationId)?.name || '-'}`}
-              </p>
+              <div className="flex flex-col sm:flex-row gap-1 shrink-0">
+                <button
+                  onClick={() => setChartRange('7hari')}
+                  className={`px-4 py-2 text-sm font-bold rounded-xl transition-colors ${
+                    chartRange === '7hari'
+                      ? 'bg-[#113129] text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  7 Hari
+                </button>
+                <button
+                  onClick={() => setChartRange('30hari')}
+                  className={`px-4 py-2 text-sm font-bold rounded-xl transition-colors ${
+                    chartRange === '30hari'
+                      ? 'bg-[#113129] text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  30 Hari
+                </button>
+              </div>
             </div>
-            <div className="flex gap-1 shrink-0">
-              <button
-                onClick={() => setChartRange('7hari')}
-                className={`px-4 py-2 text-sm font-bold rounded-xl transition-colors ${
-                  chartRange === '7hari'
-                    ? 'bg-[#113129] text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                7 Hari
-              </button>
-              <button
-                onClick={() => setChartRange('30hari')}
-                className={`px-4 py-2 text-sm font-bold rounded-xl transition-colors ${
-                  chartRange === '30hari'
-                    ? 'bg-[#113129] text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                30 Hari
-              </button>
-            </div>
+            <p className="text-gray-400 text-sm mt-3 font-medium leading-relaxed">
+              {selectedLocationId === 'semua'
+                ? 'Menampilkan data dari semua cabang'
+                : `Menampilkan data dari: ${locations.find((l) => l.id === selectedLocationId)?.name || '-'}`}
+            </p>
           </div>
           <div className="flex-1 w-full mt-5">
             <ResponsiveContainer width="100%" height="100%">
@@ -371,7 +385,7 @@ export default function AdminDashboard() {
                   dataKey="hadir"
                   stroke="#10B981"
                   strokeWidth={2}
-                  dot={{ fill: '#10B981', r: 4 }}
+                  dot={isMobile ? false : { fill: '#10B981', r: 4 }}
                   name="Hadir"
                 />
                 <Line
@@ -379,7 +393,7 @@ export default function AdminDashboard() {
                   dataKey="telat"
                   stroke="#FACC15"
                   strokeWidth={2}
-                  dot={{ fill: '#FACC15', r: 4 }}
+                  dot={isMobile ? false : { fill: '#FACC15', r: 4 }}
                   name="Telat"
                 />
                 <Line
@@ -387,7 +401,7 @@ export default function AdminDashboard() {
                   dataKey="alpha"
                   stroke="#EF4444"
                   strokeWidth={2}
-                  dot={{ fill: '#EF4444', r: 4 }}
+                  dot={isMobile ? false : { fill: '#EF4444', r: 4 }}
                   name="Alpha"
                 />
               </LineChart>

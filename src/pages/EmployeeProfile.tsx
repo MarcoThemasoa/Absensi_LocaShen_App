@@ -31,9 +31,9 @@ export default function EmployeeProfile() {
   };
 
   return (
-    <div className="flex flex-col min-h-full bg-slate-50 pb-32">
+    <div className="flex flex-col min-h-full bg-slate-50 pb-32 md:pb-0">
       {/* Top Header with Gradient */}
-      <div className="bg-gradient-to-br from-teal-900 via-teal-800 to-teal-950 text-white pt-16 pb-12 px-6 flex flex-col items-center text-center rounded-b-[40px] drop-shadow-xl relative overflow-hidden shrink-0">
+      <div className="bg-gradient-to-br from-teal-900 via-teal-800 to-teal-950 text-white pt-16 pb-12 px-6 flex flex-col items-center text-center rounded-b-[40px] md:rounded-[40px] drop-shadow-xl relative overflow-hidden shrink-0">
         <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 rounded-full bg-teal-500/20 blur-3xl pointer-events-none"></div>
         <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-48 h-48 rounded-full bg-yellow-400/20 blur-3xl pointer-events-none"></div>
 

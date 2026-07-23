@@ -42,16 +42,17 @@ export default function AdminSettings() {
 
   return (
     <div className="flex flex-col min-h-full bg-[#F9FAFB] pb-10">
-      {/* Top Header with Gradient — full-bleed */}
+      {/* Top Header with Gradient — full-bleed, now taller */}
       {/* Outer wrapper - relative, no overflow-hidden here */}
       <div className="relative -mx-6 md:-mx-10 -mt-18 md:-mt-10 shrink-0">
 
         {/* Header - has overflow-hidden to clip the glow circles */}
         <div className="bg-gradient-to-br from-[#113129] via-[#1a4a3d] to-[#0d2922] text-white rounded-b-[40px] relative overflow-hidden">
-          <div className="absolute top-0 right-0 -mr-16 w-64 h-64 rounded-full bg-[#113129]/30 blur-3xl pointer-events-none"></div>
-          <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-48 h-48 rounded-full bg-yellow-400/20 blur-3xl pointer-events-none"></div>
+          <div className="absolute top-0 right-0 -mr-16 w-72 h-72 rounded-full bg-[#113129]/30 blur-3xl pointer-events-none"></div>
+          <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-56 h-56 rounded-full bg-yellow-400/20 blur-3xl pointer-events-none"></div>
+          <div className="absolute top-1/2 right-1/4 w-32 h-32 rounded-full bg-teal-400/10 blur-3xl pointer-events-none"></div>
 
-          <div className="pt-20 pb-14 px-6" />
+          <div className="pt-32 pb-28 px-6" />
         </div>
 
         {/* Avatar - now a sibling of the header, not clipped */}

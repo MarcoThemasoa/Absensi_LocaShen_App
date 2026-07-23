@@ -10,6 +10,7 @@ import { useAuth } from '../context/AuthContext';
 import { getCachedPosition } from '../lib/locationCache';
 import { CheckInRequiredDialog } from '../components/CheckInRequiredDialog';
 import { supabase } from '../lib/supabase';
+import { fmtHHmm } from '../lib/utils';
 import { toast } from 'sonner';
 
 export default function CameraAbsen() {
@@ -377,11 +378,11 @@ export default function CameraAbsen() {
 
   return (
     <div className="relative bg-black text-white flex flex-col h-full w-full overflow-hidden">
-      <div className="shrink-0 p-4 z-20 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent pt-8 pb-12">
+      <div className="shrink-0 px-4 pt-12 pb-6 z-20 flex items-center justify-between bg-gradient-to-b from-black/30 to-transparent">
         <button onClick={() => navigate(-1)} className="p-2 rounded-full bg-white/20 backdrop-blur-md">
           <ArrowLeft size={24} />
         </button>
-        <h2 className="font-bold text-lg tracking-wide">{isCheckOut ? 'Absen Keluar' : 'Absen Masuk'}</h2>
+        <h2 className="font-bold text-lg tracking-wide drop-shadow-md">{isCheckOut ? 'Absen Keluar' : 'Absen Masuk'}</h2>
         <div className="w-10"></div>
       </div>
 
@@ -410,13 +411,13 @@ export default function CameraAbsen() {
           
             <div className="absolute bottom-24 left-0 right-0 px-6 text-center z-20">
             {step === 'face' && (
-              <div className="bg-black/30 p-4 rounded-2xl backdrop-blur-md mb-6 border border-white/10">
+              <div className="bg-black/30 p-4 rounded-2xl mb-6 border border-white/10">
                 <ScanFace size={36} className="mx-auto mb-3 text-teal-400" />
                 <p className="font-medium">Posisikan wajah Anda di dalam bingkai</p>
               </div>
             )}
             {step === 'liveness' && (
-              <div className="bg-black/30 p-4 rounded-2xl backdrop-blur-md mb-6 animate-pulse border border-yellow-500/30">
+              <div className="bg-black/30 p-4 rounded-2xl mb-6 animate-pulse border border-yellow-500/30">
                 <p className="font-bold text-yellow-400 text-xl tracking-wide">Kedipkan Mata Anda</p>
                 <p className="text-sm mt-2 text-gray-300">Sistem sedang mendeteksi liveness...</p>
               </div>
@@ -569,7 +570,7 @@ export default function CameraAbsen() {
               <Clock size={20} className="text-teal-200 flex-shrink-0 mt-0.5" />
               <div className="text-left">
                 <p className="font-bold text-teal-100 text-sm">Durasi Kerja</p>
-                <p className="text-teal-200 text-xs mt-1">Masuk: {todayAttendance.checkInTime}</p>
+                <p className="text-teal-200 text-xs mt-1">Masuk: {fmtHHmm(todayAttendance.checkInTime)}</p>
               </div>
             </div>
           )}

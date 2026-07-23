@@ -135,26 +135,80 @@ export default function AdminEmployees() {
   const totalPages = Math.ceil(filteredUsers.length / itemsPerPage);
   const currentUsers = filteredUsers.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-  const handleApprove = () => {
+  const handleApprove = async () => {
     if (confirmDialog.userId) {
-      setUsers(users.map(u => u.id === confirmDialog.userId ? { ...u, status: 'active' } : u));
-      toast.success('Karyawan disetujui');
+      try {
+        const { error } = await supabase
+          .from('users')
+          .update({ status: 'active' })
+          .eq('id', confirmDialog.userId);
+
+        if (error) throw error;
+
+        setUsers(users.map(u => u.id === confirmDialog.userId ? { ...u, status: 'active' } : u));
+        invalidateCache('employees:');
+        toast.success('Karyawan telah disetujui dan dapat mengakses aplikasi');
+      } catch (e: any) {
+        toast.error('Gagal menyetujui: ' + (e.message || 'Terjadi kesalahan'));
+      }
       setConfirmDialog({ open: false, userId: null, type: null });
     }
   };
 
-  const handleReject = () => {
+  const handleReject = async () => {
     if (confirmDialog.userId) {
-      setUsers(users.filter(u => u.id !== confirmDialog.userId));
-      toast.error('Karyawan ditolak');
+      try {
+        // Hapus user secara total via RPC (public.users + auth.users + attendance)
+        const { error: rpcError } = await supabase.rpc('admin_delete_user', {
+          p_user_id: confirmDialog.userId,
+        });
+
+        if (rpcError) {
+          console.warn('[Reject] RPC gagal, fallback ke delete manual:', rpcError.message);
+          // Fallback: hapus manual dari public.users
+          const { error } = await supabase
+            .from('users')
+            .delete()
+            .eq('id', confirmDialog.userId);
+
+          if (error) throw error;
+        }
+
+        setUsers(users.filter(u => u.id !== confirmDialog.userId));
+        invalidateCache('employees:');
+        toast.success('Karyawan ditolak dan dihapus dari sistem');
+      } catch (e: any) {
+        toast.error('Gagal menolak: ' + (e.message || 'Terjadi kesalahan'));
+      }
       setConfirmDialog({ open: false, userId: null, type: null });
     }
   };
 
-  const handleDeleteUser = () => {
+  const handleDeleteUser = async () => {
     if (deleteDialog.userId) {
-      setUsers(users.filter(u => u.id !== deleteDialog.userId));
-      toast.success('Karyawan berhasil dihapus');
+      try {
+        // Hapus user secara total via RPC (public.users + auth.users + attendance)
+        const { error: rpcError } = await supabase.rpc('admin_delete_user', {
+          p_user_id: deleteDialog.userId,
+        });
+
+        if (rpcError) {
+          console.warn('[Delete] RPC gagal, fallback ke delete manual:', rpcError.message);
+          // Fallback: hapus manual dari public.users
+          const { error } = await supabase
+            .from('users')
+            .delete()
+            .eq('id', deleteDialog.userId);
+
+          if (error) throw error;
+        }
+
+        setUsers(users.filter(u => u.id !== deleteDialog.userId));
+        invalidateCache('employees:');
+        toast.success('Karyawan berhasil dihapus dari sistem');
+      } catch (e: any) {
+        toast.error('Gagal menghapus: ' + (e.message || 'Terjadi kesalahan'));
+      }
       setDeleteDialog({ open: false, userId: null });
     }
   };

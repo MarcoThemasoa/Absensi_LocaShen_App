@@ -1,33 +1,30 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
-import { UserPlus, AlertCircle } from 'lucide-react';
+import { UserPlus, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
 import { validateRegisterForm } from '../lib/validators';
+import { supabase } from '../lib/supabase';
 
 export default function EmployeeRegister() {
   const { locations } = useAuth();
   const [name, setName] = useState('');
   const [division, setDivision] = useState('');
+  const [position, setPosition] = useState('');
   const [age, setAge] = useState('');
   const [locationId, setLocationId] = useState('');
-  const [id, setId] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
-  const registerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navigate = useNavigate();
-
-  useEffect(() => {
-    return () => {
-      if (registerTimeoutRef.current) clearTimeout(registerTimeoutRef.current);
-    };
-  }, []);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,9 +33,10 @@ export default function EmployeeRegister() {
     const validation = validateRegisterForm(
       name,
       division,
+      position,
       age,
       locationId,
-      id,
+      email,
       password
     );
 
@@ -59,11 +57,61 @@ export default function EmployeeRegister() {
 
     setValidationErrors([]);
     setLoading(true);
-    registerTimeoutRef.current = setTimeout(() => {
-      setLoading(false);
+
+    try {
+      // 1. Daftarkan user ke Supabase Auth
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          data: {
+            full_name: name.trim(),
+            division,
+            position: position.trim(),
+            age: Number(age),
+            location_id: locationId,
+          },
+        },
+      });
+
+      if (error) {
+        if (error.message?.includes('already registered') || error.message?.includes('already exists')) {
+          throw new Error('Email ini sudah terdaftar. Gunakan email lain.');
+        }
+        throw error;
+      }
+
+      if (!data.user) {
+        throw new Error('Gagal mendaftarkan akun. Silakan coba lagi.');
+      }
+
+      // 2. Setelah user dibuat oleh trigger, update data tambahan ke public.users
+      // (Trigger handle_new_user hanya mengisi name, role=employee, status=pending)
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({
+          email: email.trim(),
+          division,
+          position: position.trim(),
+          age: Number(age),
+          location_id: locationId,
+        })
+        .eq('id', data.user.id);
+
+      if (updateError) {
+        console.warn('[Register] Update detail tambahan gagal (mungkin RLS):', updateError.message);
+        // Tidak masalah — data dasar user sudah tersimpan, admin bisa melengkapi nanti.
+      }
+
       toast.success('Pendaftaran berhasil, menunggu persetujuan Admin.');
       navigate('/auth/login');
-    }, 1000);
+    } catch (error: any) {
+      const errorMessage = error.message || 'Gagal mendaftar';
+      setValidationErrors([errorMessage]);
+      toast.error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -105,13 +153,14 @@ export default function EmployeeRegister() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="id">ID Karyawan</Label>
+                <Label htmlFor="email">Email</Label>
                 <Input 
-                  id="id" 
-                  placeholder="Contoh: 123 atau name"
-                  value={id}
+                  id="email" 
+                  type="email"
+                  placeholder="contoh@email.com"
+                  value={email}
                   onChange={(e) => {
-                    setId(e.target.value);
+                    setEmail(e.target.value);
                     setValidationErrors([]);
                   }}
                   disabled={loading}
@@ -126,6 +175,20 @@ export default function EmployeeRegister() {
                   value={division}
                   onChange={(e) => {
                     setDivision(e.target.value);
+                    setValidationErrors([]);
+                  }}
+                  disabled={loading}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="position">Posisi / Jabatan</Label>
+                <Input 
+                  id="position" 
+                  placeholder="Contoh: Staf Administrasi"
+                  value={position}
+                  onChange={(e) => {
+                    setPosition(e.target.value);
                     setValidationErrors([]);
                   }}
                   disabled={loading}
@@ -168,35 +231,57 @@ export default function EmployeeRegister() {
 
               <div className="space-y-1.5">
                 <Label htmlFor="password">Password</Label>
-                <Input 
-                  id="password" 
-                  type="password"
-                  placeholder="Min 5 karakter, uppercase, angka, spesial" 
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    setValidationErrors([]);
-                  }}
-                  disabled={loading}
-                />
+                <div className="relative">
+                  <Input 
+                    id="password" 
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Min 5 karakter, uppercase, angka, spesial" 
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      setValidationErrors([]);
+                    }}
+                    disabled={loading}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  Password harus: 5+ karakter, huruf besar, huruf kecil, angka, karakter spesial (!@#$%^&* dll)
+                  Password: 5+ karakter, huruf besar, huruf kecil, angka, 1+ karakter spesial (!@#$%^&*)
                 </p>
               </div>
 
               <div className="space-y-1.5">
                 <Label htmlFor="confirmPassword">Konfirmasi Password</Label>
-                <Input 
-                  id="confirmPassword" 
-                  type="password"
-                  placeholder="Ulangi password" 
-                  value={confirmPassword}
-                  onChange={(e) => {
-                    setConfirmPassword(e.target.value);
-                    setValidationErrors([]);
-                  }}
-                  disabled={loading}
-                />
+                <div className="relative">
+                  <Input 
+                    id="confirmPassword" 
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    placeholder="Ulangi password" 
+                    value={confirmPassword}
+                    onChange={(e) => {
+                      setConfirmPassword(e.target.value);
+                      setValidationErrors([]);
+                    }}
+                    disabled={loading}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    tabIndex={-1}
+                  >
+                    {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
             </div>
             <Button 

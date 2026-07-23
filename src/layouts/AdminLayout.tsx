@@ -1,13 +1,13 @@
 import { Outlet, Navigate, Link, useLocation, useOutlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LayoutDashboard, Users, MapPin, FileSpreadsheet, UserCircle } from 'lucide-react';
+import { LayoutDashboard, Users, MapPin, FileSpreadsheet, UserCircle, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import React from 'react';
 import { cn } from '../lib/utils';
 import { GlassNavbar } from '../components/GlassNavbar';
 
 export function AdminLayout() {
-  const { user, isAuthReady } = useAuth();
+  const { user, isAuthReady, logout } = useAuth();
   const outlet = useOutlet();
   const location = useLocation();
 
@@ -73,7 +73,7 @@ export function AdminLayout() {
   return (
     <div className="min-h-screen bg-[#F9FAFB] flex flex-col md:flex-row relative">
       {/* Decorative background elements */}
-      <div className="hidden md:block absolute top-0 left-64 right-0 h-96 bg-gradient-to-br from-[#113129]/5 via-[#113129]/5 to-[#113129]/10 pointer-events-none rounded-b-[40px]"></div>
+      <div className="hidden md:block absolute top-0 left-64 right-0 h-96 bg-gradient-to-br from-[#113129]/5 via-[#113129]/5 to-[#113129]/10 pointer-events-none rounded-[40px]"></div>
 
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex w-64 bg-[#113129] text-white flex-col fixed inset-y-0 z-50 shadow-2xl border-r border-[#1a4a3d]/50">
@@ -108,6 +108,26 @@ export function AdminLayout() {
             );
           })}
         </nav>
+
+        {/* User info + Logout */}
+        <div className="px-4 py-4 border-t border-white/10 space-y-3">
+          <div className="flex items-center gap-3 px-2">
+            <div className="w-9 h-9 bg-white/10 rounded-full flex items-center justify-center text-sm font-bold text-yellow-400">
+              {user?.name?.charAt(0)}
+            </div>
+            <div className="text-xs min-w-0">
+              <p className="text-white/90 font-semibold truncate max-w-[140px]">{user?.name}</p>
+              <p className="text-yellow-200/60">Admin</p>
+            </div>
+          </div>
+          <button
+            onClick={logout}
+            className="flex items-center gap-2 w-full px-4 py-2.5 rounded-xl text-sm font-semibold text-red-300/80 hover:text-red-300 hover:bg-white/5 transition-colors"
+          >
+            <LogOut size={16} />
+            Keluar
+          </button>
+        </div>
       </aside>
 
       {/* Main Content — layout stabil, tidak berubah antar route */}
