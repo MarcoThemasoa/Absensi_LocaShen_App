@@ -39,6 +39,8 @@ export default function CameraAbsen() {
   const [showForgotConfirm, setShowForgotConfirm] = useState(false);
   const [forgotConfirmed, setForgotConfirmed] = useState(false);
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastDetectionTime = useRef<number>(0);
+  const DETECTION_INTERVAL = 150; // ms — throttle biar nggak tiap frame
 
   // Cleanup timeouts + RAF on unmount / bfcache
   useEffect(() => {
@@ -102,6 +104,14 @@ export default function CameraAbsen() {
 
   const detectBlink = useCallback(async () => {
     if (step !== 'liveness' || !faceLandmarker || !webcamRef.current?.video || blinkDetected) return;
+
+    // Throttle: skip deteksi kalo belum waktunya
+    const now = performance.now();
+    if (now - lastDetectionTime.current < DETECTION_INTERVAL) {
+      requestRef.current = requestAnimationFrame(detectBlink);
+      return;
+    }
+    lastDetectionTime.current = now;
 
     const video = webcamRef.current.video;
     
@@ -333,7 +343,9 @@ export default function CameraAbsen() {
   };
 
   const videoConstraints = {
-    facingMode: "user"
+    facingMode: "user",
+    width: { ideal: 640 },
+    height: { ideal: 480 },
   };
 
   if (showOutOfHoursDialog) {
@@ -377,17 +389,10 @@ export default function CameraAbsen() {
   }
 
   return (
-    <div className="relative bg-black text-white flex flex-col h-full w-full overflow-hidden">
-      <div className="shrink-0 px-4 pt-12 pb-6 z-20 flex items-center justify-between bg-gradient-to-b from-black/30 to-transparent">
-        <button onClick={() => navigate(-1)} className="p-2 rounded-full bg-white/20 backdrop-blur-md">
-          <ArrowLeft size={24} />
-        </button>
-        <h2 className="font-bold text-lg tracking-wide drop-shadow-md">{isCheckOut ? 'Absen Keluar' : 'Absen Masuk'}</h2>
-        <div className="w-10"></div>
-      </div>
-
+    <div className="relative bg-black text-white h-full w-full overflow-hidden">
+      {/* Camera view — full screen dari ujung atas */}
       {(step === 'face' || step === 'liveness') && (
-        <div className="flex-1 relative overflow-hidden bg-black flex flex-col justify-center h-full w-full">
+        <div className="absolute inset-0 overflow-hidden bg-black">
           {/* @ts-ignore react-webcam types issue */}
           <Webcam
             audio={false}
@@ -409,7 +414,7 @@ export default function CameraAbsen() {
             </div>
           </div>
           
-            <div className="absolute bottom-24 left-0 right-0 px-6 text-center z-20">
+          <div className="absolute bottom-24 left-0 right-0 px-6 text-center z-20">
             {step === 'face' && (
               <div className="bg-black/30 p-4 rounded-2xl mb-6 border border-white/10">
                 <ScanFace size={36} className="mx-auto mb-3 text-teal-400" />
@@ -439,8 +444,17 @@ export default function CameraAbsen() {
         </div>
       )}
 
+      {/* Header — absolute overlay di atas video */}
+      <div className="absolute top-0 left-0 right-0 px-4 pt-16 pb-6 z-30 flex items-center justify-between bg-gradient-to-b from-black/60 to-transparent">
+        <button onClick={() => navigate(-1)} className="p-2 rounded-full bg-white/20 backdrop-blur-md">
+          <ArrowLeft size={24} />
+        </button>
+        <h2 className="font-bold text-lg tracking-wide drop-shadow-md">{isCheckOut ? 'Absen Keluar' : 'Absen Masuk'}</h2>
+        <div className="w-10"></div>
+      </div>
+
       {step === 'location' && (
-        <div className="flex-1 bg-slate-50 text-gray-900 p-6 flex flex-col justify-center items-center h-full w-full">
+        <div className="absolute inset-0 bg-slate-50 text-gray-900 p-6 flex flex-col justify-center items-center overflow-y-auto">
           <Card className="w-full max-w-sm rounded-[32px] drop-shadow-2xl shadow-[0_20px_50px_rgb(0,0,0,0.1)] border-0 text-center py-10 bg-white/90 backdrop-blur-2xl">
             <CardContent>
               {gpsLoading ? (
@@ -548,7 +562,7 @@ export default function CameraAbsen() {
       </Dialog>
 
       {step === 'success' && (
-        <div className="flex-1 bg-gradient-to-br from-teal-900 to-teal-950 text-white p-6 flex flex-col justify-center items-center w-full h-full">
+        <div className="absolute inset-0 bg-gradient-to-br from-teal-900 to-teal-950 text-white p-6 flex flex-col justify-center items-center overflow-y-auto">
           <div className="w-28 h-28 bg-green-500 rounded-full flex items-center justify-center mb-8 animate-bounce shadow-[0_0_40px_rgba(34,197,94,0.4)]">
             <CheckCircle2 size={56} className="text-white" />
           </div>

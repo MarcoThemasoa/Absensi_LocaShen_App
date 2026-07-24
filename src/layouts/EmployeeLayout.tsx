@@ -106,9 +106,9 @@ export function EmployeeLayout() {
       {/* ═══════ MAIN CONTENT ═══════ */}
       <main className="flex-1 md:ml-64 relative">
         {/* ── MOBILE: phone-frame ── */}
-        <div className="md:hidden min-h-dvh bg-gray-200 flex flex-col">
+        <div className={`md:hidden ${isCameraView ? 'h-dvh' : 'min-h-dvh'} bg-gray-200 flex flex-col`}>
           <div className="flex-1 w-full max-w-[400px] mx-auto bg-slate-50 flex flex-col relative">
-            <div className="flex-1 overflow-y-auto">
+            <div className={`flex-1 ${isCameraView ? 'overflow-hidden relative' : 'overflow-y-auto'}`}>
               <AnimatePresence mode="wait">
                 {outlet && React.cloneElement(outlet, { key: location.pathname })}
               </AnimatePresence>
