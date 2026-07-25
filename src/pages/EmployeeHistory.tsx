@@ -46,6 +46,7 @@ export default function EmployeeHistory() {
   // Fetch from Supabase — parallel count + data, cached
   useEffect(() => {
     if (!user?.id) return;
+    const userId = user.id;
 
     async function fetchPage() {
       setLoading(true);
@@ -53,8 +54,8 @@ export default function EmployeeHistory() {
       const past7 = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
       const past30 = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
 
-      const cacheKey = `history:${user.id}:${filter}:page${currentPage}`;
-      const countCacheKey = `history:count:${user.id}:${filter}`;
+      const cacheKey = `history:${userId}:${filter}:page${currentPage}`;
+      const countCacheKey = `history:count:${userId}:${filter}`;
 
       // ⚡ Jalankan count + data secara paralel (sebelumnya sequential = waterfall)
       const [countResult, dataResult] = await Promise.all([
@@ -62,11 +63,11 @@ export default function EmployeeHistory() {
           let q = supabase
             .from('attendance_records')
             .select('id', { count: 'exact', head: true })
-            .eq('user_id', user.id);
+            .eq('user_id', userId);
           if (filter === '7') q = q.gte('date', past7);
           else if (filter === '30') q = q.gte('date', past30);
           const { count } = await q;
-          return { count: count ?? 0 };
+          return { data: { count: count ?? 0 }, error: null };
         }, 120_000), // ⚡ Cache 2 menit
         cachedQuery<any[]>(cacheKey, async () => {
           const from = (currentPage - 1) * itemsPerPage;
@@ -74,20 +75,20 @@ export default function EmployeeHistory() {
           let q = supabase
             .from('attendance_records')
             .select('id, user_id, date, time_in, time_out, status, photo_url, is_forgot_clock_out')
-            .eq('user_id', user.id)
+            .eq('user_id', userId)
             .order('date', { ascending: false })
             .range(from, to);
           if (filter === '7') q = q.gte('date', past7);
           else if (filter === '30') q = q.gte('date', past30);
           const { data } = await q;
-          return data || [];
+          return { data: data || [], error: null };
         }, 120_000), // ⚡ Cache 2 menit
       ]);
 
-      setTotalCount(countResult?.count ?? 0);
+      setTotalCount(countResult.data?.count ?? 0);
 
-      if (dataResult && dataResult.length > 0) {
-        setRecords(dataResult.map((a: any) => ({
+      if (dataResult.data && dataResult.data.length > 0) {
+        setRecords(dataResult.data.map((a: any) => ({
           id: a.id, userId: a.user_id, userName: a.user_name,
           date: a.date, timeIn: a.time_in, timeOut: a.time_out,
           status: a.status, locationId: a.location_id, photoUrl: a.photo_url,
@@ -111,9 +112,10 @@ export default function EmployeeHistory() {
   };
 
   return (
-    <div className="flex flex-col min-h-full bg-gray-50 pb-48 md:pb-0">
-      <div className="bg-white px-5 pt-14 pb-6 shadow-sm border-b border-gray-100 sticky top-0 z-10 flex flex-col gap-6">
-        <div>
+    <div className="bg-gray-50 min-h-dvh md:min-h-0">
+      {/* Mobile: header dengan background + shadow. Desktop: hanya filter tanpa background */}
+      <div className="bg-white px-5 pt-14 pb-6 shadow-sm border-b border-gray-100 md:bg-transparent md:shadow-none md:border-0 md:p-0 md:pt-0 md:pb-4 flex flex-col gap-6">
+        <div className="md:hidden">
           <h1 className="text-3xl font-extrabold text-gray-900">Riwayat Absensi</h1>
           <p className="text-gray-500 text-sm">Lihat aktivitas absensi Anda</p>
         </div>

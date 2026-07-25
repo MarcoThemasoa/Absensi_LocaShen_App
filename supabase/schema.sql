@@ -82,6 +82,7 @@ create table if not exists public.admin_activity_logs (
 create index if not exists idx_attendance_user_date on public.attendance_records(user_id, date);
 create index if not exists idx_attendance_date on public.attendance_records(date);
 create index if not exists idx_activity_logs_admin on public.admin_activity_logs(admin_id);
+create index if not exists idx_activity_logs_timestamp on public.admin_activity_logs(action_timestamp desc);
 create index if not exists idx_users_role on public.users(role);
 
 -- one attendance row per employee per day
@@ -210,14 +211,12 @@ drop policy if exists "Employees can insert own attendance" on public.attendance
 create policy "Employees can insert own attendance" on public.attendance_records
   for insert with check ( auth.uid() = user_id );
 
--- Employee self-update removed. Only admins may modify attendance
--- records after creation (e.g. correcting status, setting time_out).
+-- Employees can update own time_out (clock-out), admins can update any record
 drop policy if exists "Employees can update own attendance" on public.attendance_records;
-
 drop policy if exists "Admins can update attendance" on public.attendance_records;
-create policy "Admins can update attendance" on public.attendance_records
-  for update using ( public.is_admin() )
-  with check ( public.is_admin() );
+create policy "Users can update own or admins update all attendance" on public.attendance_records
+  for update using ( (select auth.uid()) = user_id or public.is_admin() )
+  with check ( (select auth.uid()) = user_id or public.is_admin() );
 
 -- 10. RLS — Admin Activity Logs
 drop policy if exists "Admins can view activity logs" on public.admin_activity_logs;
@@ -356,9 +355,10 @@ create policy "Employees can insert own attendance" on public.attendance_records
   for insert with check ( (select auth.uid()) = user_id );
 
 drop policy if exists "Admins can update attendance" on public.attendance_records;
-create policy "Admins can update attendance" on public.attendance_records
-  for update using ( public.is_admin() )
-  with check ( public.is_admin() );
+drop policy if exists "Users can update own or admins update all attendance" on public.attendance_records;
+create policy "Users can update own or admins update all attendance" on public.attendance_records
+  for update using ( (select auth.uid()) = user_id or public.is_admin() )
+  with check ( (select auth.uid()) = user_id or public.is_admin() );
 
 -- 5. ADMIN_ACTIVITY_LOGS — no overlap here, but ensure is_admin() usage is consistent
 --    (already single policy per command — no change needed structurally)
