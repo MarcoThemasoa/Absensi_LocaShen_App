@@ -3,6 +3,7 @@ import { User, OfficeLocation } from '../types';
 import { supabase } from '../lib/supabase';
 import type { Session } from '@supabase/supabase-js';
 import { initLocationCache } from '../lib/locationCache';
+import { preloadFaceLandmarker } from '../lib/faceLandmarker';
 
 
 interface TodayAttendance {
@@ -148,6 +149,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     initLocationCache();
 
+    // Preload model FaceLandmarker lebih awal — biar sudah siap saat user buka kamera
+    preloadFaceLandmarker();
+
     // Listen for auth changes — this fires INITIAL_SESSION on mount,
     // so no need for a separate getSession() call.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -157,9 +161,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         setSession(session);
 
+        // Fetch locations regardless of auth state (untuk halaman publik seperti registrasi)
+        await fetchLocations();
+
         if (session?.user) {
-          await fetchLocations();
           const profile = await fetchProfile(session.user.id, session.user.email || undefined);
+
+          // Cegah user pending masuk — signOut paksa
+          if (profile && profile.status === 'pending') {
+            await supabase.auth.signOut();
+            setUser(null);
+            setTodayAttendance(null);
+            localStorage.removeItem('todayAttendance');
+            setIsAuthReady(true);
+            return;
+          }
+
           setUser(profile);
           if (profile) {
             await initializeAttendance(session.user.id);

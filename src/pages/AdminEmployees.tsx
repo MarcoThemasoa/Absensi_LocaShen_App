@@ -39,11 +39,11 @@ export default function AdminEmployees() {
     async function fetchAll() {
       setLoading(true);
       const { data: supabaseUsers } = await cachedQuery<any[]>('employees:users', () =>
-        supabase.from('users').select('*').eq('role', 'employee')
+        supabase.from('users').select('id, name, email, role, status, position, division, age, location_id').eq('role', 'employee')
       );
       
       const { data: supabaseAtt } = await cachedQuery<any[]>('employees:attendance', () =>
-        supabase.from('attendance_records').select('*').limit(1000)
+        supabase.from('attendance_records').select('id, user_id, date, time_in, time_out, status, photo_url, is_forgot_clock_out').limit(1000)
       );
 
       if (supabaseUsers) {
@@ -313,6 +313,28 @@ export default function AdminEmployees() {
       </div>
 
       <div className="flex flex-col gap-4">
+        {loading ? (
+          <>
+            {[1,2,3].map(i => (
+              <Card key={i} className="rounded-3xl border border-white/60 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden p-5">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-gray-200 rounded-full animate-pulse shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-5 w-40 bg-gray-200 rounded-full animate-pulse" />
+                    <div className="h-4 w-24 bg-gray-100 rounded-full animate-pulse" />
+                  </div>
+                  <div className="flex gap-1.5">
+                    <div className="h-5 w-10 bg-gray-100 rounded-md animate-pulse" />
+                    <div className="h-5 w-10 bg-gray-100 rounded-md animate-pulse" />
+                    <div className="h-5 w-10 bg-gray-100 rounded-md animate-pulse" />
+                  </div>
+                </div>
+                <div className="mt-4 h-8 w-48 bg-gray-100 rounded-full animate-pulse" />
+              </Card>
+            ))}
+          </>
+        ) : (
+          <>
         {currentUsers.map((user) => {
           const todayAtt = todaysAttendance.find(a => a.userId === user.id);
           const stats = userStats[user.id] || { hadir: 0, telat: 0, alpha: 0, cuti: 0 };
@@ -440,6 +462,8 @@ export default function AdminEmployees() {
             </Button>
           </div>
         )}
+        </>
+      )}
       </div>
 
       {/* Approve/Reject Dialog */}

@@ -7,6 +7,7 @@ import { MapPin, ChevronRight, ScanFace, CheckCircle2, AlertCircle, Loader2, Clo
 import { format, parseISO } from 'date-fns';
 import { indonesianLocale } from '../lib/date-locale';
 import { supabase } from '../lib/supabase';
+import { cachedQuery } from '../lib/supabaseCache';
 import { fmtHHmm } from '../lib/utils';
 
 export default function EmployeeDashboard() {
@@ -18,24 +19,25 @@ export default function EmployeeDashboard() {
   const todayStr = format(new Date(), 'yyyy-MM-dd');
   const isTodayAttendance = todayAttendance?.date === todayStr;
 
-  // Fetch recent records from Supabase
+  // Fetch recent records from Supabase (cached)
   const [myRecentRecords, setMyRecentRecords] = useState<any[]>([]);
   useEffect(() => {
     if (!user?.id) return;
-    supabase
-      .from('attendance_records')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('date', { ascending: false })
-      .limit(2)
-      .then(({ data }) => {
-        if (data) setMyRecentRecords(data.map((a: any) => ({
-          id: a.id, userId: a.user_id, userName: a.user_name,
-          date: a.date, timeIn: a.time_in, timeOut: a.time_out,
-          status: a.status, locationId: a.location_id, photoUrl: a.photo_url,
-          is_forgot_clock_out: a.is_forgot_clock_out,
-        })));
-      });
+    cachedQuery<any[]>(`dashboard:recent:${user.id}`, () =>
+      supabase
+        .from('attendance_records')
+        .select('id, user_id, date, time_in, time_out, status, photo_url, is_forgot_clock_out')
+        .eq('user_id', user.id)
+        .order('date', { ascending: false })
+        .limit(2)
+    ).then(({ data }) => {
+      if (data) setMyRecentRecords(data.map((a: any) => ({
+        id: a.id, userId: a.user_id, userName: a.user_name,
+        date: a.date, timeIn: a.time_in, timeOut: a.time_out,
+        status: a.status, locationId: a.location_id, photoUrl: a.photo_url,
+        is_forgot_clock_out: a.is_forgot_clock_out,
+      })));
+    });
   }, [user?.id]);
 
   // Clock ticker — always runs to update the current time display

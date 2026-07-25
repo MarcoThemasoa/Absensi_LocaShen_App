@@ -19,6 +19,15 @@ export default defineConfig(() => {
       rollupOptions: {
         output: {
           manualChunks: {
+            // Core framework
+            'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+            // UI library
+            'vendor-ui': ['@base-ui/react', 'lucide-react', 'sonner', 'motion'],
+            // Data & utilities
+            'vendor-data': ['@supabase/supabase-js', 'date-fns'],
+            // Charts
+            'vendor-charts': ['recharts'],
+            // Maps
             leaflet: ['leaflet', 'react-leaflet'],
           },
         },

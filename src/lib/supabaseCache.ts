@@ -6,6 +6,8 @@
  */
 const store = new Map<string, { data: unknown; ts: number }>();
 const DEFAULT_TTL = 60_000; // 1 minute
+const LOCATIONS_TTL = 300_000; // 5 menit — data lokasi jarang berubah
+const USERS_TTL = 120_000; // 2 menit — data user cukup stabil
 
 type Thenable<T> = { then: (onfulfilled: (value: T) => any) => any };
 
@@ -23,6 +25,22 @@ export async function cachedQuery<T>(
     store.set(key, { data: result.data, ts: Date.now() });
   }
   return result;
+}
+
+/** Helper: cachedQuery dengan TTL lebih panjang untuk data lokasi */
+export function cachedLocations<T>(
+  key: string,
+  fetcher: () => PromiseLike<{ data: T | null; error: any }>,
+): Promise<{ data: T | null; error: any }> {
+  return cachedQuery(key, fetcher, LOCATIONS_TTL);
+}
+
+/** Helper: cachedQuery untuk data users (TTL 2 menit) */
+export function cachedUsers<T>(
+  key: string,
+  fetcher: () => PromiseLike<{ data: T | null; error: any }>,
+): Promise<{ data: T | null; error: any }> {
+  return cachedQuery(key, fetcher, USERS_TTL);
 }
 
 export function invalidateCache(prefix?: string) {

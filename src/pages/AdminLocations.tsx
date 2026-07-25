@@ -62,6 +62,7 @@ export default function AdminLocations() {
   const [locations, setLocations] = useState(authLocations);
   const [attendances, setAttendances] = useState<AttendanceRecord[]>([]);
   const [emplUsers, setEmplUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [attendancePage, setAttendancePage] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0); // 🔄 trigger re-fetch
@@ -104,14 +105,15 @@ export default function AdminLocations() {
 
   // 🔄 Re-fetch: manual refresh atau saat authLocations / refreshKey berubah
   const fetchEmployeesAndAttendance = useCallback(async () => {
+    setLoading(true);
     try {
       // Fetch attendance + users in parallel (cached)
       const [attResult, userResult] = await Promise.all([
         cachedQuery<any[]>('locations:attendance', () =>
-          supabase.from('attendance_records').select('*').order('date', { ascending: false })
+          supabase.from('attendance_records').select('id, user_id, date, time_in, time_out, status, location_lat, location_lng').order('date', { ascending: false }).limit(500)
         ),
-        cachedQuery<any[]>('locations:users', () =>
-          supabase.from('users').select('*').eq('role', 'employee')
+        cachedQuery<any[]>('employees:users', () => // ⚡ Share cache dengan AdminEmployees
+          supabase.from('users').select('id, name, role, status, location_id').eq('role', 'employee')
         ),
       ]);
 
@@ -166,8 +168,10 @@ export default function AdminLocations() {
       } else {
         setAttendances([]);
       }
+      setLoading(false);
     } catch (e) {
       console.error('Exception saat fetch data lokasi:', e);
+      setLoading(false);
     }
   }, []);
 
@@ -505,7 +509,42 @@ export default function AdminLocations() {
       </div>
 
       <div className="flex flex-col gap-6">
-        {selectedLocation && locationDetails && (
+        {loading ? (
+          <>
+            {/* Skeleton — detail karyawan */}
+            <Card className="rounded-3xl border border-teal-100 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+              <CardHeader className="border-b border-[#113129]/10 px-6 sm:px-8 pt-6 pb-1">
+                <div className="h-6 w-48 bg-gray-200 rounded-full animate-pulse" />
+              </CardHeader>
+              <CardContent className="pt-1 px-6 sm:px-8 pb-8">
+                <div className="grid grid-cols-5 gap-2 sm:gap-3 mb-6">
+                  {[1,2,3,4,5].map(i => (
+                    <div key={i} className="bg-gray-50 rounded-xl p-3 sm:p-5 flex flex-col items-center gap-2">
+                      <div className="h-3 w-12 bg-gray-200 rounded-full animate-pulse" />
+                      <div className="h-8 w-8 bg-gray-200 rounded-lg animate-pulse" />
+                    </div>
+                  ))}
+                </div>
+                <div className="h-11 bg-gray-100 rounded-xl animate-pulse mb-4" />
+                <div className="space-y-2">
+                  {[1,2,3].map(i => (
+                    <div key={i} className="h-16 bg-gray-50 rounded-xl animate-pulse" />
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+            {/* Skeleton — peta */}
+            <Card className="rounded-3xl border border-white/60 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+              <CardHeader className="border-b border-[#113129]/10 px-6 sm:px-8 pt-6 pb-1">
+                <div className="h-6 w-32 bg-gray-200 rounded-full animate-pulse" />
+              </CardHeader>
+              <CardContent className="px-6 sm:px-8 pb-8 pt-4">
+                <div className="w-full h-[400px] bg-gray-100 rounded-2xl animate-pulse" />
+              </CardContent>
+            </Card>
+          </>
+        ) : (
+          selectedLocation && locationDetails && (
           <>
             <Card className="rounded-3xl border border-teal-100 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
               <CardHeader className="border-b border-[#113129]/10 px-6 sm:px-8 pt-6 pb-1">
@@ -689,6 +728,7 @@ export default function AdminLocations() {
               </CardContent>
             </Card>
           </>
+          )
         )}
       </div>
     </div>

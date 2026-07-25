@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { EmployeeLayout } from './layouts/EmployeeLayout';
@@ -7,6 +7,15 @@ import { Toaster } from './components/ui/sonner';
 import { AnimatePresence, motion } from 'motion/react';
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from '@vercel/speed-insights/react';
+
+/** Scroll to top setiap kali pathname berubah */
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [pathname]);
+  return null;
+}
 
 const EmployeeLogin = lazy(() => import('./pages/EmployeeLogin'));
 const EmployeeRegister = lazy(() => import('./pages/EmployeeRegister'));
@@ -117,6 +126,7 @@ export default function App() {
   return (
     <AuthProvider>
       <Router>
+        <ScrollToTop />
         <AnimatedRoutes />
       </Router>
       <Toaster />

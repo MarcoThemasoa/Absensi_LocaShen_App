@@ -40,7 +40,7 @@ export function EmployeeLayout() {
     );
   }
 
-  if (!user || user.role !== 'employee') {
+  if (!user || user.role !== 'employee' || user.status === 'pending') {
     return <Navigate to="/auth/login" />;
   }
 
@@ -118,26 +118,36 @@ export function EmployeeLayout() {
         </div>
 
         {/* ── DESKTOP: full-width ── */}
-        <div className="hidden md:block min-h-screen">
-          {/* Top bar */}
-          <div className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between sticky top-0 z-30">
-            <div>
-              <h2 className="text-lg font-bold text-gray-800">
-                {NAV_ITEMS.find(i => i.path === location.pathname)?.name || 'Beranda'}
-              </h2>
-              <p className="text-xs text-gray-400 font-medium">
-                {user.name} • Karyawan
-              </p>
+        <div className={`hidden md:block ${isCameraView ? '' : 'min-h-screen'}`}>
+          {/* Top bar — sembunyikan saat camera view */}
+          {!isCameraView && (
+            <div className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between sticky top-0 z-30">
+              <div>
+                <h2 className="text-lg font-bold text-gray-800">
+                  {NAV_ITEMS.find(i => i.path === location.pathname)?.name || 'Beranda'}
+                </h2>
+                <p className="text-xs text-gray-400 font-medium">
+                  {user.name} • Karyawan
+                </p>
+              </div>
+              <p className="text-xs text-gray-400 font-medium">{user.position || 'Karyawan'}</p>
             </div>
-            <p className="text-xs text-gray-400 font-medium">{user.position || 'Karyawan'}</p>
-          </div>
+          )}
 
-          {/* Page content — wider container */}
-          <div className="max-w-6xl mx-auto px-6 md:px-10 py-6">
-            <AnimatePresence mode="wait">
-              {outlet && React.cloneElement(outlet, { key: location.pathname })}
-            </AnimatePresence>
-          </div>
+          {/* Page content — full-screen untuk kamera, container untuk lainnya */}
+          {isCameraView ? (
+            <div className="h-screen w-full relative overflow-hidden">
+              <AnimatePresence mode="wait">
+                {outlet && React.cloneElement(outlet, { key: location.pathname })}
+              </AnimatePresence>
+            </div>
+          ) : (
+            <div className="max-w-6xl mx-auto px-6 md:px-10 py-6">
+              <AnimatePresence mode="wait">
+                {outlet && React.cloneElement(outlet, { key: location.pathname })}
+              </AnimatePresence>
+            </div>
+          )}
         </div>
       </main>
     </div>

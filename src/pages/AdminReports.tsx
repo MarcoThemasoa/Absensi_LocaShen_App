@@ -5,10 +5,12 @@ import { Button } from '../components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '../components/ui/dialog';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
-import { cachedQuery, invalidateCache } from '../lib/supabaseCache';
+import { cachedQuery } from '../lib/supabaseCache';
 import { Download, Search, Maximize2, ChevronLeft, ChevronRight, Activity, Clock, MapPin } from 'lucide-react';
-import { format, parseISO, subDays, isAfter, startOfDay } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { indonesianLocale } from '../lib/date-locale';
+import { Combobox } from '../components/ui/combobox';
+import { AttendanceRecord } from '../types';
 
 /** Format time string → HH:mm (24 jam, leading zero) */
 function fmtTime(t: string | null | undefined): string {
@@ -16,8 +18,95 @@ function fmtTime(t: string | null | undefined): string {
   const [h, m] = t.split(':');
   return `${h.padStart(2, '0')}:${(m || '00').padStart(2, '0')}`;
 }
-import { Combobox } from '../components/ui/combobox';
-import { AttendanceRecord } from '../types';
+
+/** Download CSV helper — reusable untuk reports & logs */
+function downloadCSV(headers: string[], rows: string[], filename: string) {
+  const csvString = [headers.join(','), ...rows].join('\n');
+  const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/** Status badge — 3 varian: compact (card mobile), dialog, table */
+function StatusBadge({ status, isForgotClockOut, variant = 'table' }: {
+  status: string;
+  isForgotClockOut?: boolean;
+  variant?: 'compact' | 'dialog' | 'table';
+}) {
+  const colors: Record<string, { bg: string; text: string; ring: string }> = {
+    hadir: { bg: 'bg-green-50', text: 'text-green-700', ring: 'ring-green-600/20' },
+    telat: { bg: 'bg-yellow-50', text: 'text-yellow-700', ring: 'ring-yellow-600/20' },
+    cuti: { bg: 'bg-blue-50', text: 'text-blue-700', ring: 'ring-blue-600/20' },
+    alpha: { bg: 'bg-red-50', text: 'text-red-700', ring: 'ring-red-600/20' },
+  };
+  const c = colors[status] || colors.alpha;
+
+  const cls = variant === 'compact'
+    ? { badge: 'rounded-md px-2 py-0.5 text-[10px]', forgot: 'rounded-md px-1.5 py-0.5 text-[10px]' }
+    : variant === 'dialog'
+    ? { badge: 'rounded-lg px-2.5 py-1 text-xs', forgot: 'rounded-lg px-2.5 py-1 text-xs' }
+    : { badge: 'rounded-xl px-3 py-1.5 text-xs shadow-sm tracking-wider', forgot: 'rounded-xl px-2 py-1 text-xs shadow-sm tracking-wider' };
+
+  const label = variant === 'compact'
+    ? (status === 'hadir' ? 'H' : status === 'telat' ? 'T' : status === 'cuti' ? 'C' : 'A')
+    : (status === 'hadir' ? 'Hadir' : status === 'telat' ? 'Telat' : status === 'cuti' ? 'Cuti' : 'Alpha');
+
+  return (
+    <div className="flex items-center justify-center gap-1.5">
+      {isForgotClockOut && (
+        <span className={`inline-flex items-center ${cls.forgot} font-bold uppercase bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-600/20`}>
+          {variant === 'compact' ? 'LK' : 'Lupa'}
+        </span>
+      )}
+      <span className={`inline-flex items-center ${cls.badge} font-bold uppercase ${c.bg} ${c.text} ${c.ring}`}>
+        {label}
+      </span>
+    </div>
+  );
+}
+
+/** Pagination controls — reusable untuk reports & logs */
+function PaginationControls({ currentPage, totalPages, totalItems, itemsPerPage, onPageChange, size = 'md' }: {
+  currentPage: number;
+  totalPages: number;
+  totalItems: number;
+  itemsPerPage: number;
+  onPageChange: (page: number) => void;
+  size?: 'sm' | 'md';
+}) {
+  if (totalPages <= 1) return null;
+  const isSm = size === 'sm';
+  const start = (currentPage - 1) * itemsPerPage + 1;
+  const end = Math.min(currentPage * itemsPerPage, totalItems);
+
+  return (
+    <div className={`${isSm ? 'p-3' : 'p-4'} border-t border-gray-100/50 flex items-center justify-between gap-4 bg-gray-50/30 ${isSm ? 'shrink-0' : ''}`}>
+      <p className={`${isSm ? 'text-xs' : 'text-sm'} text-gray-500 font-medium hidden sm:block`}>
+        Menampilkan {start} - {end} dari {totalItems} data
+      </p>
+      <p className={`${isSm ? 'text-xs' : 'text-sm'} text-gray-500 font-medium sm:hidden`}>
+        {start}-{end} dari {totalItems}
+      </p>
+      <div className="flex items-center gap-1">
+        <Button variant="outline" size="icon" className={`${isSm ? 'rounded-lg w-8 h-8' : 'rounded-xl w-9 h-9'} border-gray-200`} onClick={() => onPageChange(Math.max(1, currentPage - 1))} disabled={currentPage === 1}>
+          <ChevronLeft size={isSm ? 14 : 16} />
+        </Button>
+        <div className={`${isSm ? 'text-xs' : 'text-sm'} font-bold text-gray-700 px-2 flex items-center whitespace-nowrap`}>
+          {currentPage} / {totalPages}
+        </div>
+        <Button variant="outline" size="icon" className={`${isSm ? 'rounded-lg w-8 h-8' : 'rounded-xl w-9 h-9'} border-gray-200`} onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))} disabled={currentPage === totalPages}>
+          <ChevronRight size={isSm ? 14 : 16} />
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 interface AdminActivityLog {
   id: string; adminId: string; adminName: string; action: string;
@@ -28,6 +117,7 @@ export default function AdminReports() {
   const { locations } = useAuth();
   const [reports, setReports] = useState<AttendanceRecord[]>([]);
   const [adminLogs, setAdminLogs] = useState<AdminActivityLog[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [timeFilter, setTimeFilter] = useState<'1hari' | '7hari' | '1bulan' | 'semua'>('semua');
   const [locationFilter, setLocationFilter] = useState<string>('');
@@ -47,25 +137,51 @@ export default function AdminReports() {
   const [logCurrentPage, setLogCurrentPage] = useState(1);
   const logsPerPage = 15;
 
-  // Fetch attendance & logs from Supabase (cached)
+  /** Hitung tanggal awal berdasarkan filter */
+  function getStartDate(filter: '1hari' | '7hari' | '1bulan' | 'semua'): string | null {
+    if (filter === 'semua') return null;
+    const days = filter === '1hari' ? 1 : filter === '7hari' ? 7 : 30;
+    return new Date(Date.now() - days * 86400000).toISOString().split('T')[0];
+  }
+
+  // Fetch attendance & logs from Supabase (cached + server-side filter)
   useEffect(() => {
     async function fetchReports() {
+      setLoading(true);
+
+      const startDate = getStartDate(timeFilter);
+      const logStartDate = getStartDate(logTimeFilter);
+
+      const attCacheKey = `reports:attendance:${timeFilter}`;
+      const logCacheKey = `reports:logs:${logTimeFilter}`;
+
       const [attResult, userResult, logResult] = await Promise.all([
-        cachedQuery<any[]>('reports:attendance', () =>
-          supabase.from('attendance_records').select('*').order('date', { ascending: false }).limit(500)
+        cachedQuery<any[]>(attCacheKey, () => {
+          let query = supabase
+            .from('attendance_records')
+            .select('id, user_id, date, time_in, time_out, status, location_lat, location_lng, photo_url, is_forgot_clock_out')
+            .order('date', { ascending: false })
+            .limit(200);
+          if (startDate) query = query.gte('date', startDate);
+          return query;
+        }, 180_000),
+        cachedQuery<any[]>('employees:users', () =>
+          supabase.from('users').select('id, name, role, status, location_id').eq('role', 'employee')
         ),
-        cachedQuery<any[]>('reports:users', () =>
-          supabase.from('users').select('*').eq('role', 'employee')
-        ),
-        cachedQuery<any[]>('reports:logs', () =>
-          supabase.from('admin_activity_logs').select('*').order('action_timestamp', { ascending: false }).limit(500)
-        ),
+        cachedQuery<any[]>(logCacheKey, () => {
+          let query = supabase
+            .from('admin_activity_logs')
+            .select('id, admin_id, action, action_timestamp, location_lat, location_lng, location_name')
+            .order('action_timestamp', { ascending: false })
+            .limit(200);
+          if (logStartDate) query = query.gte('action_timestamp', logStartDate);
+          return query;
+        }),
       ]);
 
       const userData = userResult.data || [];
       const userMap = new Map(userData.map((u: any) => [u.id, u]));
 
-      // Enrich attendance records with userName + locationId from users table
       if (attResult.data && attResult.data.length > 0) {
         setReports(attResult.data.map((a: any) => {
           const user = userMap.get(a.user_id);
@@ -78,6 +194,8 @@ export default function AdminReports() {
             isForgotClockOut: a.is_forgot_clock_out || false,
           };
         }));
+      } else {
+        setReports([]);
       }
 
       const logData = logResult.data || [];
@@ -91,65 +209,33 @@ export default function AdminReports() {
             locationName: l.location_name || '',
           };
         }));
+      } else {
+        setAdminLogs([]);
       }
+
+      setLoading(false);
     }
     fetchReports();
-  }, []);
-
-  const filteredLogs = useMemo(() => {
-    const today = startOfDay(new Date());
-    return adminLogs.filter(log => {
-      const logDate = startOfDay(parseISO(log.timestamp));
-      if (logTimeFilter === '1hari') {
-        if (!isAfter(logDate, subDays(today, 1))) return false;
-      } else if (logTimeFilter === '7hari') {
-        if (!isAfter(logDate, subDays(today, 6))) return false;
-      } else if (logTimeFilter === '1bulan') {
-        if (!isAfter(logDate, subDays(today, 29))) return false;
-      }
-      return true;
-    });
-  }, [logTimeFilter, adminLogs]);
+  }, [timeFilter, logTimeFilter]);
 
   useEffect(() => {
     setLogCurrentPage(1);
   }, [logTimeFilter]);
 
-  const logTotalPages = Math.ceil(filteredLogs.length / logsPerPage);
-  const paginatedLogs = filteredLogs.slice(
+  const logTotalPages = Math.ceil(adminLogs.length / logsPerPage);
+  const paginatedLogs = adminLogs.slice(
     (logCurrentPage - 1) * logsPerPage,
     logCurrentPage * logsPerPage
   );
 
   const filteredReports = useMemo(() => {
     return reports.filter(report => {
-      // Name filter
-      if (searchQuery && !report.userName.toLowerCase().includes(searchQuery.toLowerCase())) {
-        return false;
-      }
-      
-      // Location filter
-      if (locationFilter && report.locationId !== locationFilter) {
-        return false;
-      }
-      
-      // Time filter
-      const reportDate = startOfDay(parseISO(report.date));
-      const today = startOfDay(new Date());
-      
-      if (timeFilter === '1hari') {
-        if (!isAfter(reportDate, subDays(today, 1))) return false;
-      } else if (timeFilter === '7hari') {
-        if (!isAfter(reportDate, subDays(today, 6))) return false;
-      } else if (timeFilter === '1bulan') {
-        if (!isAfter(reportDate, subDays(today, 29))) return false;
-      }
-      
+      if (searchQuery && !report.userName.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+      if (locationFilter && report.locationId !== locationFilter) return false;
       return true;
     });
-  }, [reports, searchQuery, timeFilter, locationFilter]);
+  }, [reports, searchQuery, locationFilter]);
 
-  // Reset pagination when filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, timeFilter, locationFilter]);
@@ -162,7 +248,7 @@ export default function AdminReports() {
 
   const handleExportCSV = () => {
     // Log export action
-    const newLog = {
+    setAdminLogs(prev => [{
       id: 'log' + Date.now(),
       adminId: 'admin1',
       adminName: 'Admin HRD',
@@ -170,15 +256,11 @@ export default function AdminReports() {
       timestamp: new Date().toISOString(),
       location: { lat: -6.200000, lng: 106.816666 },
       locationName: 'Lokasi Perangkat Admin'
-    };
-    setAdminLogs(prev => [newLog, ...prev]);
+    }, ...prev]);
 
     const reportsToExport = reports.filter(report => {
       if (exportLocation && report.locationId !== exportLocation) return false;
-      
-      if (exportStartDate) {
-        if (new Date(report.date) < new Date(exportStartDate)) return false;
-      }
+      if (exportStartDate && new Date(report.date) < new Date(exportStartDate)) return false;
       if (exportEndDate) {
         const end = new Date(exportEndDate);
         end.setHours(23, 59, 59, 999);
@@ -187,27 +269,14 @@ export default function AdminReports() {
       return true;
     });
 
-    const headers = ['ID,Tanggal,Nama,Jam Masuk,Jam Keluar,Status,Lokasi'];
-    const csvData = reportsToExport.map(r => {
+    const headers = ['ID', 'Tanggal', 'Nama', 'Jam Masuk', 'Jam Keluar', 'Status', 'Lokasi'];
+    const rows = reportsToExport.map(r => {
       const locName = locations.find(l => l.id === r.locationId)?.name || '';
       return `${r.id},${r.date},"${r.userName}",${r.timeIn},${r.timeOut || ''},${r.status},"${locName}"`;
     });
-
-    const csvString = headers.concat(csvData).join('\n');
-    
-    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const filterName = (exportStartDate && exportEndDate) ? `${exportStartDate}_to_${exportEndDate}` : 'custom';
-    
     const dateStr = format(new Date(), 'dd-MMM-yyyy', { locale: indonesianLocale });
-    a.download = `Laporan_Absensi_${filterName}_${dateStr}.csv`;
-
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const filterName = (exportStartDate && exportEndDate) ? `${exportStartDate}_to_${exportEndDate}` : 'custom';
+    downloadCSV(headers, rows, `Laporan_Absensi_${filterName}_${dateStr}.csv`);
     setIsExportDialogOpen(false);
   };
 
@@ -262,56 +331,23 @@ export default function AdminReports() {
                 )}
               </div>
               
-              {/* Pagination Controls for Logs */}
-              {logTotalPages > 1 && (
-                <div className="p-3 border-t border-gray-100/50 flex items-center justify-between gap-4 bg-gray-50/30 shrink-0">
-                  <p className="text-xs text-gray-500 font-medium hidden sm:block">
-                    Menampilkan {(logCurrentPage - 1) * logsPerPage + 1} - {Math.min(logCurrentPage * logsPerPage, filteredLogs.length)} dari {filteredLogs.length} data
-                  </p>
-                  <p className="text-xs text-gray-500 font-medium sm:hidden">
-                    {(logCurrentPage - 1) * logsPerPage + 1}-{Math.min(logCurrentPage * logsPerPage, filteredLogs.length)} dari {filteredLogs.length}
-                  </p>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="rounded-lg w-8 h-8 border-gray-200"
-                      onClick={() => setLogCurrentPage(p => Math.max(1, p - 1))}
-                      disabled={logCurrentPage === 1}
-                    >
-                      <ChevronLeft size={14} />
-                    </Button>
-                    <div className="text-xs font-bold text-gray-700 px-2 flex items-center whitespace-nowrap">
-                      {logCurrentPage} / {logTotalPages}
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="rounded-lg w-8 h-8 border-gray-200"
-                      onClick={() => setLogCurrentPage(p => Math.min(logTotalPages, p + 1))}
-                      disabled={logCurrentPage === logTotalPages}
-                    >
-                      <ChevronRight size={14} />
-                    </Button>
-                  </div>
-                </div>
-              )}
+              <PaginationControls
+                currentPage={logCurrentPage}
+                totalPages={logTotalPages}
+                totalItems={adminLogs.length}
+                itemsPerPage={logsPerPage}
+                onPageChange={setLogCurrentPage}
+                size="sm"
+              />
               
               <div className="p-4 shrink-0 border-t border-gray-100">
                 <Button className="w-full bg-[#113129] hover:bg-[#1a4a3d] text-white rounded-xl h-11 font-bold" onClick={() => {
-                   const headers = ['ID,Waktu,Tindakan,Lokasi'];
-                   const csvData = filteredLogs.map(l => `${l.id},${l.timestamp},"${l.action}","${l.locationName}"`);
-                   const csvString = headers.concat(csvData).join('\n');
-                   const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
-                   const url = URL.createObjectURL(blob);
-                   const a = document.createElement('a');
-                   a.href = url;
-                   const dateStr = format(new Date(), 'dd-MMM-yyyy', { locale: indonesianLocale });
-                   a.download = `Log_Aktivitas_${dateStr}.csv`;
-                   document.body.appendChild(a);
-                   a.click();
-                   document.body.removeChild(a);
-                   URL.revokeObjectURL(url);
+                  const dateStr = format(new Date(), 'dd-MMM-yyyy', { locale: indonesianLocale });
+                  downloadCSV(
+                    ['ID', 'Waktu', 'Tindakan', 'Lokasi'],
+                    adminLogs.map(l => `${l.id},${l.timestamp},"${l.action}","${l.locationName}"`),
+                    `Log_Aktivitas_${dateStr}.csv`
+                  );
                 }}>
                   <Download size={18} className="mr-2" /> Unduh CSV Log Aktivitas
                 </Button>
@@ -359,6 +395,30 @@ export default function AdminReports() {
         </div>
       </div>
 
+      {/* Loading skeleton */}
+      {loading ? (
+        <Card className="rounded-3xl border border-white/60 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-visible p-0">
+          <CardContent className="p-0">
+            <div className="p-5 border-b border-gray-100/50">
+              <div className="flex flex-col xl:flex-row gap-4">
+                <div className="h-10 w-full md:w-64 bg-gray-100 rounded-xl animate-pulse" />
+                <div className="h-10 w-full md:w-64 bg-gray-100 rounded-xl animate-pulse" />
+                <div className="flex gap-2">
+                  <div className="h-10 w-20 bg-gray-100 rounded-xl animate-pulse" />
+                  <div className="h-10 w-20 bg-gray-100 rounded-xl animate-pulse" />
+                  <div className="h-10 w-20 bg-gray-100 rounded-xl animate-pulse" />
+                  <div className="h-10 w-20 bg-gray-100 rounded-xl animate-pulse" />
+                </div>
+              </div>
+            </div>
+            <div className="p-4 md:p-6 space-y-3">
+              {[1,2,3,4,5].map((i) => (
+                <div key={i} className="h-24 bg-gray-50 rounded-2xl animate-pulse" />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
       <Card className="rounded-3xl border border-white/60 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-visible p-0">
         <CardContent className="p-0">
           <div className="p-5 border-b border-gray-100/50 flex flex-col xl:flex-row justify-between gap-4 bg-white/50 backdrop-blur-sm rounded-t-3xl relative z-50">
@@ -389,11 +449,10 @@ export default function AdminReports() {
               <Button variant={timeFilter === 'semua' ? 'default' : 'outline'} className={timeFilter === 'semua' ? 'bg-[#113129] text-white rounded-xl' : 'rounded-xl'} size="default" onClick={() => setTimeFilter('semua')}>Semua</Button>
             </div>
           </div>
-          {/* Card List - tampil di layar kecil/menengah, meniru desain app */}
+          {/* Card List - mobile */}
           <div className="flex flex-col gap-3 p-4 md:p-6 xl:hidden">
             {paginatedReports.length > 0 ? paginatedReports.map((report) => {
               const locationName = locations.find(l => l.id === report.locationId)?.name || '-';
-              const isOutside = locationName.toLowerCase().includes('luar');
               return (
                 <Dialog key={report.id}>
                   <DialogTrigger>
@@ -409,20 +468,7 @@ export default function AdminReports() {
                           <MapPin size={14} className="shrink-0" />
                           <span className="truncate max-w-[15ch]">{locationName}</span>
                         </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          {report.isForgotClockOut && (
-                            <span className="inline-flex items-center rounded-md bg-orange-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-orange-700 ring-1 ring-inset ring-orange-600/20">LK</span>
-                          )}
-                          {report.status === 'hadir' ? (
-                            <span className="inline-flex items-center rounded-md bg-green-50 px-2 py-0.5 text-[10px] font-bold uppercase text-green-700 ring-1 ring-inset ring-green-600/20">H</span>
-                          ) : report.status === 'telat' ? (
-                            <span className="inline-flex items-center rounded-md bg-yellow-50 px-2 py-0.5 text-[10px] font-bold uppercase text-yellow-700 ring-1 ring-inset ring-yellow-600/20">T</span>
-                          ) : report.status === 'cuti' ? (
-                            <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase text-blue-700 ring-1 ring-inset ring-blue-600/20">C</span>
-                          ) : (
-                            <span className="inline-flex items-center rounded-md bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase text-red-700 ring-1 ring-inset ring-red-600/20">A</span>
-                          )}
-                        </div>
+                        <StatusBadge status={report.status} isForgotClockOut={report.isForgotClockOut} variant="compact" />
                       </div>
                       <div className="flex items-center gap-2 text-xs text-gray-500">
                         <Clock size={13} className="shrink-0 text-[#113129]" />
@@ -443,20 +489,7 @@ export default function AdminReports() {
                         </div>
                         <div>
                           <p className="text-gray-400 font-medium text-xs">Status</p>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            {report.isForgotClockOut && (
-                              <span className="inline-flex items-center rounded-lg bg-orange-50 px-2.5 py-1 text-xs font-bold uppercase text-orange-700 ring-1 ring-inset ring-orange-600/20">Lupa Keluar</span>
-                            )}
-                            {report.status === 'hadir' ? (
-                              <span className="inline-flex items-center rounded-lg bg-green-50 px-2.5 py-1 text-xs font-bold uppercase text-green-700 ring-1 ring-inset ring-green-600/20">Hadir</span>
-                            ) : report.status === 'telat' ? (
-                              <span className="inline-flex items-center rounded-lg bg-yellow-50 px-2.5 py-1 text-xs font-bold uppercase text-yellow-700 ring-1 ring-inset ring-yellow-600/20">Telat</span>
-                            ) : report.status === 'cuti' ? (
-                              <span className="inline-flex items-center rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-bold uppercase text-blue-700 ring-1 ring-inset ring-blue-600/20">Cuti</span>
-                            ) : (
-                              <span className="inline-flex items-center rounded-lg bg-red-50 px-2.5 py-1 text-xs font-bold uppercase text-red-700 ring-1 ring-inset ring-red-600/20">Alpha</span>
-                            )}
-                          </div>
+                          <StatusBadge status={report.status} isForgotClockOut={report.isForgotClockOut} variant="dialog" />
                         </div>
                         <div>
                           <p className="text-gray-400 font-medium text-xs">Jam Masuk</p>
@@ -486,6 +519,7 @@ export default function AdminReports() {
               </div>
             )}
           </div>
+          {/* Table - desktop */}
           <div className="hidden xl:block overflow-x-auto px-4 md:px-6 py-0 rounded-b-3xl relative z-10">
             <Table className="w-full min-w-[800px]">
               <TableHeader className="bg-gray-50/50 rounded-t-xl">
@@ -512,20 +546,7 @@ export default function AdminReports() {
                     <TableCell className="font-medium text-gray-600 text-center">{fmtTime(report.timeIn)}</TableCell>
                     <TableCell className="font-medium text-gray-600 text-center">{fmtTime(report.timeOut)}</TableCell>
                     <TableCell className="text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        {report.isForgotClockOut && (
-                          <span className="inline-flex items-center rounded-xl bg-orange-50 px-2 py-1 text-xs font-bold uppercase tracking-wider text-orange-700 ring-1 ring-inset ring-orange-600/20 shadow-sm">Lupa</span>
-                        )}
-                        {report.status === 'hadir' ? (
-                          <span className="inline-flex items-center rounded-xl bg-green-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-green-700 ring-1 ring-inset ring-green-600/20 shadow-sm">Hadir</span>
-                        ) : report.status === 'telat' ? (
-                          <span className="inline-flex items-center rounded-xl bg-yellow-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-yellow-700 ring-1 ring-inset ring-yellow-600/20 shadow-sm">Telat</span>
-                        ) : report.status === 'cuti' ? (
-                          <span className="inline-flex items-center rounded-xl bg-blue-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-600/20 shadow-sm">Cuti</span>
-                        ) : (
-                          <span className="inline-flex items-center rounded-xl bg-red-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-red-700 ring-1 ring-inset ring-red-600/20 shadow-sm">Alpha</span>
-                        )}
-                      </div>
+                      <StatusBadge status={report.status} isForgotClockOut={report.isForgotClockOut} variant="table" />
                     </TableCell>
                     <TableCell className="text-center flex justify-center items-center py-3">
                       {report.photoUrl ? (
@@ -561,42 +582,17 @@ export default function AdminReports() {
             </Table>
           </div>
 
-          {/* Pagination Controls */}
-          {totalPages > 1 && (
-            <div className="p-4 border-t border-gray-100/50 flex items-center justify-between gap-4 bg-gray-50/30">
-              <p className="text-sm text-gray-500 font-medium hidden sm:block">
-                Menampilkan {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, filteredReports.length)} dari {filteredReports.length} data
-              </p>
-              <p className="text-sm text-gray-500 font-medium sm:hidden">
-                {(currentPage - 1) * itemsPerPage + 1}-{Math.min(currentPage * itemsPerPage, filteredReports.length)} dari {filteredReports.length}
-              </p>
-              <div className="flex items-center gap-1 sm:gap-2">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="rounded-xl w-9 h-9 border-gray-200"
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                >
-                  <ChevronLeft size={16} />
-                </Button>
-                <div className="text-sm font-bold text-gray-700 px-2 flex items-center whitespace-nowrap">
-                  {currentPage} / {totalPages}
-                </div>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="rounded-xl w-9 h-9 border-gray-200"
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                >
-                  <ChevronRight size={16} />
-                </Button>
-              </div>
-            </div>
-          )}
+          <PaginationControls
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filteredReports.length}
+            itemsPerPage={itemsPerPage}
+            onPageChange={setCurrentPage}
+            size="md"
+          />
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }

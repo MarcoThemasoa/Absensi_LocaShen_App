@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Clock, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { cachedQuery } from '../lib/supabaseCache';
 import { useAuth } from '../context/AuthContext';
 import { format, parseISO } from 'date-fns';
 import { indonesianLocale } from '../lib/date-locale';
@@ -14,53 +15,102 @@ function fmtTime(t: string | null | undefined): string {
   return `${h.padStart(2, '0')}:${(m || '00').padStart(2, '0')}`;
 }
 
+/** Skeleton card — placeholder selama loading */
+function HistorySkeleton() {
+  return (
+    <div className="bg-white p-4 rounded-2xl drop-shadow-sm border border-gray-100 flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full bg-gray-200 animate-pulse shrink-0" />
+          <div className="space-y-2">
+            <div className="h-4 w-32 bg-gray-200 rounded-full animate-pulse" />
+            <div className="h-3 w-24 bg-gray-100 rounded-full animate-pulse" />
+          </div>
+        </div>
+        <div className="h-6 w-14 bg-gray-100 rounded-xl animate-pulse" />
+      </div>
+    </div>
+  );
+}
+
 export default function EmployeeHistory() {
   const { user } = useAuth();
   
   const [records, setRecords] = useState<any[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'7' | '30' | 'all'>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  // Fetch from Supabase on mount & filter change
+  // Fetch from Supabase — parallel count + data, cached
   useEffect(() => {
     if (!user?.id) return;
-    let query = supabase
-      .from('attendance_records')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('date', { ascending: false });
 
-    if (filter === '7') {
-      const past = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
-      query = query.gte('date', past);
-    } else if (filter === '30') {
-      const past = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
-      query = query.gte('date', past);
+    async function fetchPage() {
+      setLoading(true);
+
+      const past7 = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+      const past30 = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+
+      const cacheKey = `history:${user.id}:${filter}:page${currentPage}`;
+      const countCacheKey = `history:count:${user.id}:${filter}`;
+
+      // ⚡ Jalankan count + data secara paralel (sebelumnya sequential = waterfall)
+      const [countResult, dataResult] = await Promise.all([
+        cachedQuery<{ count: number }>(countCacheKey, async () => {
+          let q = supabase
+            .from('attendance_records')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', user.id);
+          if (filter === '7') q = q.gte('date', past7);
+          else if (filter === '30') q = q.gte('date', past30);
+          const { count } = await q;
+          return { count: count ?? 0 };
+        }, 120_000), // ⚡ Cache 2 menit
+        cachedQuery<any[]>(cacheKey, async () => {
+          const from = (currentPage - 1) * itemsPerPage;
+          const to = from + itemsPerPage - 1;
+          let q = supabase
+            .from('attendance_records')
+            .select('id, user_id, date, time_in, time_out, status, photo_url, is_forgot_clock_out')
+            .eq('user_id', user.id)
+            .order('date', { ascending: false })
+            .range(from, to);
+          if (filter === '7') q = q.gte('date', past7);
+          else if (filter === '30') q = q.gte('date', past30);
+          const { data } = await q;
+          return data || [];
+        }, 120_000), // ⚡ Cache 2 menit
+      ]);
+
+      setTotalCount(countResult?.count ?? 0);
+
+      if (dataResult && dataResult.length > 0) {
+        setRecords(dataResult.map((a: any) => ({
+          id: a.id, userId: a.user_id, userName: a.user_name,
+          date: a.date, timeIn: a.time_in, timeOut: a.time_out,
+          status: a.status, locationId: a.location_id, photoUrl: a.photo_url,
+          is_forgot_clock_out: a.is_forgot_clock_out,
+        })));
+      } else {
+        setRecords([]);
+      }
+
+      setLoading(false);
     }
 
-    query.then(({ data }) => {
-      if (data) setRecords(data.map((a: any) => ({
-        id: a.id, userId: a.user_id, userName: a.user_name,
-        date: a.date, timeIn: a.time_in, timeOut: a.time_out,
-        status: a.status, locationId: a.location_id, photoUrl: a.photo_url,
-        is_forgot_clock_out: a.is_forgot_clock_out,
-      })));
-    });
-  }, [user?.id, filter]);
+    fetchPage();
+  }, [user?.id, filter, currentPage]);
   
-  const filteredRecords = records;
-  
-  const totalPages = Math.max(1, Math.ceil(filteredRecords.length / itemsPerPage));
-  const paginatedRecords = filteredRecords.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const totalPages = Math.max(1, Math.ceil(totalCount / itemsPerPage));
 
   const handleFilterChange = (newFilter: '7' | '30' | 'all') => {
     setFilter(newFilter);
     setCurrentPage(1);
   };
 
-
-    return (
+  return (
     <div className="flex flex-col min-h-full bg-gray-50 pb-48 md:pb-0">
       <div className="bg-white px-5 pt-14 pb-6 shadow-sm border-b border-gray-100 sticky top-0 z-10 flex flex-col gap-6">
         <div>
@@ -91,7 +141,17 @@ export default function EmployeeHistory() {
       </div>
       
       <div className="p-4 space-y-3 pb-6">
-        {paginatedRecords.length > 0 ? paginatedRecords.map((record) => (
+        {/* ⚡ Loading skeleton — tampil saat data belum siap */}
+        {loading ? (
+          <>
+            <HistorySkeleton />
+            <HistorySkeleton />
+            <HistorySkeleton />
+            <HistorySkeleton />
+            <HistorySkeleton />
+          </>
+        ) : (
+          records.length > 0 ? records.map((record) => (
           <div key={record.id} className="bg-white p-4 rounded-2xl drop-shadow-sm border border-gray-100 flex flex-col gap-2">
             {record.is_forgot_clock_out && (
               <span className="text-[10px] font-bold uppercase tracking-wider text-orange-600 leading-none">
@@ -126,9 +186,9 @@ export default function EmployeeHistory() {
           <div className="text-center py-10">
             <p className="text-gray-500">Tidak ada riwayat absensi ditemukan.</p>
           </div>
-        )}
+        ))}
         
-        {totalPages > 1 && (
+        {!loading && totalPages > 1 && (
           <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200 px-2 mb-8">
             <button
               onClick={() => setCurrentPage(p => Math.max(1, p - 1))}

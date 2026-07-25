@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import { Combobox } from '../components/ui/combobox';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 import { UserPlus, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
@@ -85,23 +86,8 @@ export default function EmployeeRegister() {
         throw new Error('Gagal mendaftarkan akun. Silakan coba lagi.');
       }
 
-      // 2. Setelah user dibuat oleh trigger, update data tambahan ke public.users
-      // (Trigger handle_new_user hanya mengisi name, role=employee, status=pending)
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({
-          email: email.trim(),
-          division,
-          position: position.trim(),
-          age: Number(age),
-          location_id: locationId,
-        })
-        .eq('id', data.user.id);
-
-      if (updateError) {
-        console.warn('[Register] Update detail tambahan gagal (mungkin RLS):', updateError.message);
-        // Tidak masalah — data dasar user sudah tersimpan, admin bisa melengkapi nanti.
-      }
+      // 2. Sign-out paksa karena confirm email dimatikan — user pending tidak boleh punya session
+      await supabase.auth.signOut();
 
       toast.success('Pendaftaran berhasil, menunggu persetujuan Admin.');
       navigate('/auth/login');
@@ -211,22 +197,17 @@ export default function EmployeeRegister() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="location">Cabang</Label>
-                <select
-                  id="location"
+                <Label>Cabang</Label>
+                <Combobox
+                  options={locations.map(loc => ({ value: loc.id, label: loc.name }))}
                   value={locationId}
-                  onChange={(e) => {
-                    setLocationId(e.target.value);
+                  onChange={(val) => {
+                    setLocationId(val);
                     setValidationErrors([]);
                   }}
-                  disabled={loading}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="" disabled>Pilih Cabang</option>
-                  {locations.map(loc => (
-                    <option key={loc.id} value={loc.id}>{loc.name}</option>
-                  ))}
-                </select>
+                  placeholder="Pilih Cabang"
+                  className="w-full"
+                />
               </div>
 
               <div className="space-y-1.5">

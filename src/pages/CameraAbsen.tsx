@@ -5,7 +5,8 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import { ArrowLeft, CheckCircle2, ScanFace, MapPinned, XCircle, Loader2, Clock, AlertCircle } from 'lucide-react';
-import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
+import { getFaceLandmarker, isFaceLandmarkerReady } from '../lib/faceLandmarker';
+import type { FaceLandmarker } from '@mediapipe/tasks-vision';
 import { useAuth } from '../context/AuthContext';
 import { getCachedPosition } from '../lib/locationCache';
 import { CheckInRequiredDialog } from '../components/CheckInRequiredDialog';
@@ -32,7 +33,7 @@ export default function CameraAbsen() {
   const [attendanceTime, setAttendanceTime] = useState<string>('');
   
   const [faceLandmarker, setFaceLandmarker] = useState<FaceLandmarker | null>(null);
-  const [isModelLoading, setIsModelLoading] = useState(false);
+  const [isModelLoading, setIsModelLoading] = useState(!isFaceLandmarkerReady());
   const requestRef = useRef<number | null>(null);
   const lastVideoTime = useRef<number>(-1);
   const [blinkDetected, setBlinkDetected] = useState(false);
@@ -77,29 +78,16 @@ export default function CameraAbsen() {
   }, [isCheckOut, todayAttendance]);
 
   useEffect(() => {
-    const initFaceLandmarker = async () => {
-      try {
-        setIsModelLoading(true);
-        const vision = await FilesetResolver.forVisionTasks(
-          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
-        );
-        const landmarker = await FaceLandmarker.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
-            delegate: "GPU"
-          },
-          outputFaceBlendshapes: true,
-          runningMode: "VIDEO",
-          numFaces: 1
-        });
+    // Gunakan singleton — model sudah di-preload atau akan di-load sekali saja
+    getFaceLandmarker()
+      .then((landmarker) => {
         setFaceLandmarker(landmarker);
         setIsModelLoading(false);
-      } catch (error) {
-        console.error("Error initializing FaceLandmarker", error);
+      })
+      .catch((error) => {
+        console.error('Error initializing FaceLandmarker', error);
         setIsModelLoading(false);
-      }
-    };
-    initFaceLandmarker();
+      });
   }, []);
 
   const detectBlink = useCallback(async () => {

@@ -19,7 +19,21 @@ interface DailyStat {
   alpha: number;
 }
 
-/** Skeleton placeholder for stat cards — prevents layout shift while loading */
+/** Skeleton placeholder for chart area */
+function ChartSkeleton() {
+  const heights = [45, 65, 35, 55, 70, 40, 50];
+  return (
+    <div className="flex-1 w-full mt-5 flex items-end justify-around gap-2 px-4">
+      {heights.map((h, i) => (
+        <div key={i} className="flex-1 flex flex-col items-center gap-2">
+          <div className="w-full bg-gray-100 rounded-t-lg animate-pulse" style={{ height: `${h}%` }} />
+          <div className="h-3 w-full bg-gray-100 rounded animate-pulse" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function StatCardSkeleton() {
   return (
     <div className="block">
@@ -314,99 +328,113 @@ export default function AdminDashboard() {
       {/* ── CHART + MAP — always rendered with reserved space (min-h prevents CLS) ── */}
       <div className="grid grid-cols-1 gap-8 mt-8">
         <Card className="rounded-3xl border border-white/60 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] col-span-1 min-h-96 flex flex-col p-6">
-          <div className="mb-2">
-            <div className="flex items-start justify-between gap-4">
-              <h3 className="font-bold text-2xl text-gray-900 tracking-tight">
-                Grafik Kehadiran
-              </h3>
-              <div className="flex flex-col sm:flex-row gap-1 shrink-0">
-                <button
-                  onClick={() => setChartRange('7hari')}
-                  className={`px-4 py-2 text-sm font-bold rounded-xl transition-colors ${
-                    chartRange === '7hari'
-                      ? 'bg-[#113129] text-white'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  7 Hari
-                </button>
-                <button
-                  onClick={() => setChartRange('30hari')}
-                  className={`px-4 py-2 text-sm font-bold rounded-xl transition-colors ${
-                    chartRange === '30hari'
-                      ? 'bg-[#113129] text-white'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  30 Hari
-                </button>
+          {loading ? (
+            <>
+              <div className="h-6 w-48 bg-gray-200 rounded-full animate-pulse mb-2" />
+              <div className="flex gap-2">
+                <div className="h-8 w-16 bg-gray-100 rounded-xl animate-pulse" />
+                <div className="h-8 w-16 bg-gray-100 rounded-xl animate-pulse" />
               </div>
-            </div>
-            <p className="text-gray-400 text-sm mt-3 font-medium leading-relaxed">
-              {selectedLocationId === 'semua'
-                ? 'Menampilkan data dari semua cabang'
-                : `Menampilkan data dari: ${locations.find((l) => l.id === selectedLocationId)?.name || '-'}`}
-            </p>
-          </div>
-          <div className="flex-1 w-full mt-5">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={weeklyChart}
-                margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-              >
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  vertical={false}
-                  stroke="#e5e7eb"
-                />
-                <XAxis
-                  dataKey="name"
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fontSize: 12, fill: '#6b7280' }}
-                  dy={10}
-                />
-                <YAxis
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fontSize: 12, fill: '#6b7280' }}
-                />
-                <Tooltip
-                  cursor={{ fill: '#f3f4f6' }}
-                  contentStyle={{
-                    borderRadius: '12px',
-                    border: 'none',
-                    boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
-                  }}
-                />
-                <Legend verticalAlign="top" height={36} />
-                <Line
-                  type="monotone"
-                  dataKey="hadir"
-                  stroke="#10B981"
-                  strokeWidth={2}
-                  dot={isMobile ? false : { fill: '#10B981', r: 4 }}
-                  name="Hadir"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="telat"
-                  stroke="#FACC15"
-                  strokeWidth={2}
-                  dot={isMobile ? false : { fill: '#FACC15', r: 4 }}
-                  name="Telat"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="alpha"
-                  stroke="#EF4444"
-                  strokeWidth={2}
-                  dot={isMobile ? false : { fill: '#EF4444', r: 4 }}
-                  name="Alpha"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+              <div className="h-4 w-64 bg-gray-100 rounded-full animate-pulse mt-3" />
+              <ChartSkeleton />
+            </>
+          ) : (
+            <>
+              <div className="mb-2">
+                <div className="flex items-start justify-between gap-4">
+                  <h3 className="font-bold text-2xl text-gray-900 tracking-tight">
+                    Grafik Kehadiran
+                  </h3>
+                  <div className="flex flex-col sm:flex-row gap-1 shrink-0">
+                    <button
+                      onClick={() => setChartRange('7hari')}
+                      className={`px-4 py-2 text-sm font-bold rounded-xl transition-colors ${
+                        chartRange === '7hari'
+                          ? 'bg-[#113129] text-white'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      7 Hari
+                    </button>
+                    <button
+                      onClick={() => setChartRange('30hari')}
+                      className={`px-4 py-2 text-sm font-bold rounded-xl transition-colors ${
+                        chartRange === '30hari'
+                          ? 'bg-[#113129] text-white'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      30 Hari
+                    </button>
+                  </div>
+                </div>
+                <p className="text-gray-400 text-sm mt-3 font-medium leading-relaxed">
+                  {selectedLocationId === 'semua'
+                    ? 'Menampilkan data dari semua cabang'
+                    : `Menampilkan data dari: ${locations.find((l) => l.id === selectedLocationId)?.name || '-'}`}
+                </p>
+              </div>
+              <div className="flex-1 w-full mt-5">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={weeklyChart}
+                    margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                  >
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      vertical={false}
+                      stroke="#e5e7eb"
+                    />
+                    <XAxis
+                      dataKey="name"
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fontSize: 12, fill: '#6b7280' }}
+                      dy={10}
+                    />
+                    <YAxis
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fontSize: 12, fill: '#6b7280' }}
+                    />
+                    <Tooltip
+                      cursor={{ fill: '#f3f4f6' }}
+                      contentStyle={{
+                        borderRadius: '12px',
+                        border: 'none',
+                        boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                      }}
+                    />
+                    <Legend verticalAlign="top" height={36} />
+                    <Line
+                      type="monotone"
+                      dataKey="hadir"
+                      stroke="#10B981"
+                      strokeWidth={2}
+                      dot={isMobile ? false : { fill: '#10B981', r: 4 }}
+                      name="Hadir"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="telat"
+                      stroke="#FACC15"
+                      strokeWidth={2}
+                      dot={isMobile ? false : { fill: '#FACC15', r: 4 }}
+                      name="Telat"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="alpha"
+                      stroke="#EF4444"
+                      strokeWidth={2}
+                      dot={isMobile ? false : { fill: '#EF4444', r: 4 }}
+                      name="Alpha"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </>
+          )}
         </Card>
 
         <Card className="rounded-3xl border border-white/60 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] col-span-1 min-h-96 flex flex-col p-6">

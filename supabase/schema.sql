@@ -229,6 +229,8 @@ create policy "Admins can insert activity logs" on public.admin_activity_logs
   for insert with check ( public.is_admin() );
 
 -- 11. Trigger: auto-create user profile after signup
+-- Semua data diambil dari raw_user_meta_data (dikirim via options.data saat signUp)
+-- sehingga tidak perlu update kedua dari client — menghindari masalah RLS.
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -236,12 +238,17 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.users (id, name, role, status)
+  insert into public.users (id, name, email, role, status, division, position, age, location_id)
   values (
     new.id,
     coalesce(nullif(new.raw_user_meta_data->>'full_name', ''), split_part(new.email, '@', 1)),
+    new.email,
     'employee',
-    'pending'
+    'pending',
+    new.raw_user_meta_data->>'division',
+    new.raw_user_meta_data->>'position',
+    (new.raw_user_meta_data->>'age')::int,
+    (new.raw_user_meta_data->>'location_id')::uuid
   );
   return new;
 end;
