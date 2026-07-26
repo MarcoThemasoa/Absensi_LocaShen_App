@@ -25,6 +25,7 @@ const EmployeeDashboard = lazy(() => import('./pages/EmployeeDashboard'));
 const CameraAbsen = lazy(() => import('./pages/CameraAbsen'));
 const EmployeeHistory = lazy(() => import('./pages/EmployeeHistory'));
 const EmployeeProfile = lazy(() => import('./pages/EmployeeProfile'));
+const FaceEnrollment = lazy(() => import('./pages/FaceEnrollment'));
 
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
 const AdminEmployees = lazy(() => import('./pages/AdminEmployees'));
@@ -33,7 +34,7 @@ const AdminReports = lazy(() => import('./pages/AdminReports'));
 const AdminSettings = lazy(() => import('./pages/AdminSettings'));
 
 const PAGES_FALLBACK = (
-  <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-white">
     <div className="w-8 h-8 border-4 border-teal-200 border-t-teal-600 rounded-full animate-spin" />
   </div>
 );
@@ -106,6 +107,7 @@ function AnimatedRoutes() {
           <Route path="/absen/kamera" element={<PageWrapper><motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} transition={fadeTransition} className="h-full"><CameraAbsen /></motion.div></PageWrapper>} />
           <Route path="/riwayat" element={<PageWrapper><motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={fadeTransition} className="h-full"><EmployeeHistory /></motion.div></PageWrapper>} />
           <Route path="/profil" element={<PageWrapper><motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={fadeTransition} className="h-full"><EmployeeProfile /></motion.div></PageWrapper>} />
+          <Route path="/enroll-wajah" element={<PageWrapper><motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} transition={fadeTransition} className="h-full"><FaceEnrollment /></motion.div></PageWrapper>} />
         </Route>
 
         {/* Admin Protected Routes */}

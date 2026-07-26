@@ -13,7 +13,7 @@ const NAV_ITEMS = [
 ];
 
 export function EmployeeLayout() {
-  const { user, isAuthReady, logout } = useAuth();
+  const { user, isAuthReady, logout, needsEnrollment } = useAuth();
   const outlet = useOutlet();
   const location = useLocation();
 
@@ -26,7 +26,8 @@ export function EmployeeLayout() {
     />
   );
 
-  const isCameraView = location.pathname.includes('/absen/kamera');
+  const isCameraView = location.pathname.includes('/absen/kamera') || location.pathname === '/enroll-wajah';
+  const isEnrollView = location.pathname === '/enroll-wajah';
 
   // ── Loading state ──
   if (!isAuthReady) {
@@ -42,6 +43,11 @@ export function EmployeeLayout() {
 
   if (!user || user.role !== 'employee' || user.status === 'pending') {
     return <Navigate to="/auth/login" />;
+  }
+
+  // ── Face enrollment guard: paksa user enrollment kalau belum punya wajah ──
+  if (needsEnrollment && !isEnrollView) {
+    return <Navigate to="/enroll-wajah" replace />;
   }
 
   // ── Desktop nav link ──
@@ -107,7 +113,7 @@ export function EmployeeLayout() {
       <main className="flex-1 md:ml-64 relative">
         {/* ── MOBILE: phone-frame ── */}
         <div className={`md:hidden ${isCameraView ? 'h-dvh' : 'min-h-dvh'} bg-gray-200 flex flex-col`}>
-          <div className="flex-1 w-full max-w-[400px] mx-auto bg-slate-50 flex flex-col relative">
+          <div className="flex-1 w-full bg-slate-50 flex flex-col relative">
             <div className={`flex-1 ${isCameraView ? 'overflow-hidden relative' : 'overflow-y-auto'}`}>
               <AnimatePresence mode="wait">
                 {outlet && React.cloneElement(outlet, { key: location.pathname })}

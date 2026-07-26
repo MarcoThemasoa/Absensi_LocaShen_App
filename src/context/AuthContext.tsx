@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import type { Session } from '@supabase/supabase-js';
 import { initLocationCache } from '../lib/locationCache';
 import { preloadFaceLandmarker } from '../lib/faceLandmarker';
+import { getFaceEnrollmentInfo } from '../lib/faceMatcher';
 
 
 interface TodayAttendance {
@@ -21,6 +22,7 @@ interface AuthContextType {
   yesterdayForgotClockOut: boolean;
   locations: OfficeLocation[];
   isAuthReady: boolean;
+  needsEnrollment: boolean;
   login: (email: string, password: string, role: 'employee' | 'admin') => Promise<void>;
   logout: () => void;
   updateUser: (data: Partial<User>) => void;
@@ -30,6 +32,7 @@ interface AuthContextType {
   clearTodayAttendance: () => void;
   refreshLocations: () => Promise<void>;
   dismissYesterdayAlert: () => void;
+  refreshFaceStatus: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -39,8 +42,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [todayAttendance, setTodayAttendance] = useState<TodayAttendance | null>(null);
   const [yesterdayForgotClockOut, setYesterdayForgotClockOut] = useState(false);
   const [, setSession] = useState<Session | null>(null);
-  const [locations, setLocations] = useState<OfficeLocation[]>([]);
+  const [locations, setOfficeLocations] = useState<OfficeLocation[]>([]);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [needsEnrollment, setNeedsEnrollment] = useState(false);
+
+  /** Cek apakah user sudah punya face descriptor */
+  const checkFaceEnrollment = useCallback(async (userId: string) => {
+    try {
+      const info = await getFaceEnrollmentInfo(userId);
+      setNeedsEnrollment(!info.enrolled);
+    } catch {
+      // Kalau tabel face_embeddings belum ada, jangan blokir user
+      setNeedsEnrollment(false);
+    }
+  }, []);
 
   const getTodayDate = () => new Date().toISOString().split('T')[0];
   const getYesterdayDate = () => {
@@ -54,13 +69,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .from('office_locations')
       .select('*');
     if (data && data.length > 0) {
-      setLocations(data.map((loc: any) => ({
+      setOfficeLocations(data.map((loc: any) => ({
         id: loc.id, name: loc.name,
         address: loc.address || undefined,
         lat: loc.lat, lng: loc.lng, radius: loc.radius,
       })));
     } else {
-      setLocations([]);
+      setOfficeLocations([]);
     }
   }, []);
 
@@ -180,11 +195,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(profile);
           if (profile) {
             await initializeAttendance(session.user.id);
+            // Cek status face enrollment (employee only)
+            if (profile.role === 'employee') {
+              await checkFaceEnrollment(session.user.id);
+            }
           }
         } else {
           setUser(null);
           setTodayAttendance(null);
           localStorage.removeItem('todayAttendance');
+          setNeedsEnrollment(false);
         }
 
         setIsAuthReady(true);
@@ -246,6 +266,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     setUser(profile);
+
+    // Preload MediaPipe FaceLandmarker di background — biar pas buka kamera langsung siap
+    preloadFaceLandmarker();
+
+    // Cek status face enrollment untuk employee
+    if (profile.role === 'employee') {
+      await checkFaceEnrollment(data.user.id);
+    }
   };
 
   const logout = async () => {
@@ -253,6 +281,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setTodayAttendance(null);
     localStorage.removeItem('todayAttendance');
+    setNeedsEnrollment(false);
   };
 
   const updateUser = (data: Partial<User>) => {
@@ -316,6 +345,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setYesterdayForgotClockOut(false);
   };
 
+  const refreshFaceStatus = useCallback(async () => {
+    if (!user?.id) return;
+    await checkFaceEnrollment(user.id);
+  }, [user?.id, checkFaceEnrollment]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -324,6 +358,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         yesterdayForgotClockOut,
         locations,
         isAuthReady,
+        needsEnrollment,
         login,
         logout,
         updateUser,
@@ -333,6 +368,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearTodayAttendance,
         refreshLocations: fetchLocations,
         dismissYesterdayAlert,
+        refreshFaceStatus,
       }}
     >
       {children}

@@ -67,6 +67,11 @@ do $$ begin
 exception when duplicate_column then null;
 end $$;
 
+do $$ begin
+  alter table public.attendance_records add column face_match_score double precision;
+exception when duplicate_column then null;
+end $$;
+
 create table if not exists public.admin_activity_logs (
   id uuid default gen_random_uuid() primary key,
   admin_id uuid references public.users(id) not null,
@@ -78,12 +83,22 @@ create table if not exists public.admin_activity_logs (
   created_at timestamptz default timezone('utc'::text, now()) not null
 );
 
+-- Face embeddings untuk verifikasi wajah saat absen
+create table if not exists public.face_embeddings (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.users(id) not null unique,
+  descriptor float8[] not null,
+  created_at timestamptz default timezone('utc'::text, now()) not null,
+  updated_at timestamptz default timezone('utc'::text, now()) not null
+);
+
 -- 3. Indexes
 create index if not exists idx_attendance_user_date on public.attendance_records(user_id, date);
 create index if not exists idx_attendance_date on public.attendance_records(date);
 create index if not exists idx_activity_logs_admin on public.admin_activity_logs(admin_id);
 create index if not exists idx_activity_logs_timestamp on public.admin_activity_logs(action_timestamp desc);
 create index if not exists idx_users_role on public.users(role);
+create index if not exists idx_face_embeddings_user on public.face_embeddings(user_id);
 
 -- one attendance row per employee per day
 create unique index if not exists uq_attendance_user_date
@@ -152,6 +167,7 @@ alter table public.users enable row level security;
 alter table public.office_locations enable row level security;
 alter table public.attendance_records enable row level security;
 alter table public.admin_activity_logs enable row level security;
+alter table public.face_embeddings enable row level security;
 
 -- 6. Helper: non-recursive admin check
 -- security definer bypasses RLS on the internal lookup, so policies
@@ -362,3 +378,15 @@ create policy "Users can update own or admins update all attendance" on public.a
 
 -- 5. ADMIN_ACTIVITY_LOGS — no overlap here, but ensure is_admin() usage is consistent
 --    (already single policy per command — no change needed structurally)
+
+-- 6. RLS — Face Embeddings (added for self-enrollment flow)
+drop policy if exists "Users can manage own face embeddings" on public.face_embeddings;
+create policy "Users can manage own face embeddings" on public.face_embeddings
+  for all
+  using ( (select auth.uid()) = user_id )
+  with check ( (select auth.uid()) = user_id );
+
+drop policy if exists "Admins can view all face embeddings" on public.face_embeddings;
+create policy "Admins can view all face embeddings" on public.face_embeddings
+  for select
+  using ( public.is_admin() );

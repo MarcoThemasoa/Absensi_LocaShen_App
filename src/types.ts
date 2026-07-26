@@ -25,6 +25,7 @@ export interface AttendanceRecord {
   locationId?: string;
   photoUrl?: string;
   isForgotClockOut?: boolean;
+  faceMatchScore?: number | null; // NULL = belum dicek, < threshold = cocok, ≥ threshold = mencurigakan
 }
 
 export interface OfficeLocation {

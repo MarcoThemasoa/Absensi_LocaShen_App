@@ -6,7 +6,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { cachedQuery } from '../lib/supabaseCache';
-import { Download, Search, Maximize2, ChevronLeft, ChevronRight, Activity, Clock, MapPin } from 'lucide-react';
+import { Download, Search, Maximize2, ChevronLeft, ChevronRight, Activity, Clock, MapPin, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { FACE_MATCH_THRESHOLD } from '../lib/faceLandmarker';
 import { format, parseISO } from 'date-fns';
 import { indonesianLocale } from '../lib/date-locale';
 import { Combobox } from '../components/ui/combobox';
@@ -159,7 +160,7 @@ export default function AdminReports() {
         cachedQuery<any[]>(attCacheKey, () => {
           let query = supabase
             .from('attendance_records')
-            .select('id, user_id, date, time_in, time_out, status, location_lat, location_lng, photo_url, is_forgot_clock_out')
+            .select('id, user_id, date, time_in, time_out, status, location_lat, location_lng, photo_url, is_forgot_clock_out, face_match_score')
             .order('date', { ascending: false })
             .limit(200);
           if (startDate) query = query.gte('date', startDate);
@@ -192,6 +193,7 @@ export default function AdminReports() {
             locationId: user?.location_id || undefined,
             photoUrl: a.photo_url || undefined,
             isForgotClockOut: a.is_forgot_clock_out || false,
+            faceMatchScore: a.face_match_score ?? null,
           };
         }));
       } else {
@@ -269,10 +271,13 @@ export default function AdminReports() {
       return true;
     });
 
-    const headers = ['ID', 'Tanggal', 'Nama', 'Jam Masuk', 'Jam Keluar', 'Status', 'Lokasi'];
+    const headers = ['ID', 'Tanggal', 'Nama', 'Jam Masuk', 'Jam Keluar', 'Status', 'Lokasi', 'Kecocokan Wajah'];
     const rows = reportsToExport.map(r => {
       const locName = locations.find(l => l.id === r.locationId)?.name || '';
-      return `${r.id},${r.date},"${r.userName}",${r.timeIn},${r.timeOut || ''},${r.status},"${locName}"`;
+      const faceStr = (r.faceMatchScore !== null && r.faceMatchScore !== undefined)
+        ? (r.faceMatchScore < FACE_MATCH_THRESHOLD ? 'Cocok' : `Mencurigakan (${r.faceMatchScore.toFixed(3)})`)
+        : '-';
+      return `${r.id},${r.date},"${r.userName}",${r.timeIn},${r.timeOut || ''},${r.status},"${locName}","${faceStr}"`;
     });
     const dateStr = format(new Date(), 'dd-MMM-yyyy', { locale: indonesianLocale });
     const filterName = (exportStartDate && exportEndDate) ? `${exportStartDate}_to_${exportEndDate}` : 'custom';
@@ -475,6 +480,19 @@ export default function AdminReports() {
                         <span>{fmtTime(report.timeIn)}</span>
                         {report.timeOut && <span>— {fmtTime(report.timeOut)}</span>}
                       </div>
+                      {report.faceMatchScore !== null && report.faceMatchScore !== undefined && (
+                        <div className="flex items-center gap-1 mt-1">
+                          {report.faceMatchScore < FACE_MATCH_THRESHOLD ? (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-green-700">
+                              <ShieldCheck size={10} /> Wajah Cocok
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-red-700">
+                              <ShieldAlert size={10} /> Wajah Mencurigakan
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </DialogTrigger>
                   <DialogContent className="sm:max-w-md rounded-3xl border-white/60 bg-white/90 backdrop-blur-2xl shadow-[0_20px_60px_rgb(0,0,0,0.1)] p-6">
@@ -503,6 +521,22 @@ export default function AdminReports() {
                           <p className="text-gray-400 font-medium text-xs">Cabang</p>
                           <p className="font-bold text-gray-900">{locationName}</p>
                         </div>
+                        {report.faceMatchScore !== null && report.faceMatchScore !== undefined && (
+                          <div className="col-span-2">
+                            <p className="text-gray-400 font-medium text-xs">Kecocokan Wajah</p>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              {report.faceMatchScore < FACE_MATCH_THRESHOLD ? (
+                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200">
+                                  <ShieldCheck size={12} /> Cocok (skor: {report.faceMatchScore.toFixed(3)})
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-200">
+                                  <ShieldAlert size={12} /> Mencurigakan (skor: {report.faceMatchScore.toFixed(3)})
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
                       {report.photoUrl && (
                         <div className="w-full mt-1 rounded-2xl overflow-hidden shadow-md">
@@ -530,6 +564,7 @@ export default function AdminReports() {
                   <TableHead className="font-bold text-gray-900 text-center">Jam Masuk</TableHead>
                   <TableHead className="font-bold text-gray-900 text-center">Jam Keluar</TableHead>
                   <TableHead className="font-bold text-gray-900 text-center">Status</TableHead>
+                  <TableHead className="font-bold text-gray-900 text-center">Wajah</TableHead>
                   <TableHead className="font-bold text-gray-900 text-center">Bukti Foto</TableHead>
                 </TableRow>
               </TableHeader>
@@ -547,6 +582,23 @@ export default function AdminReports() {
                     <TableCell className="font-medium text-gray-600 text-center">{fmtTime(report.timeOut)}</TableCell>
                     <TableCell className="text-center">
                       <StatusBadge status={report.status} isForgotClockOut={report.isForgotClockOut} variant="table" />
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {report.faceMatchScore !== null && report.faceMatchScore !== undefined ? (
+                        report.faceMatchScore < FACE_MATCH_THRESHOLD ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700 bg-green-50 px-2 py-1 rounded-full border border-green-200">
+                            <ShieldCheck size={12} />
+                            Cocok
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 px-2 py-1 rounded-full border border-red-200" title={`Skor: ${report.faceMatchScore.toFixed(3)} (threshold: ${FACE_MATCH_THRESHOLD})`}>
+                            <ShieldAlert size={12} />
+                            Mencurigakan
+                          </span>
+                        )
+                      ) : (
+                        <span className="text-gray-400 text-xs">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-center flex justify-center items-center py-3">
                       {report.photoUrl ? (

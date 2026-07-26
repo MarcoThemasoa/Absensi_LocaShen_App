@@ -1,19 +1,44 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { LogOut, Edit2, ShieldCheck, Clock as ClockIcon, Check, X } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { LogOut, Edit2, ShieldCheck, Clock as ClockIcon, Check, X, ScanFace, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Card, CardContent } from '../components/ui/card';
 import { toast } from 'sonner';
+import { getFaceEnrollmentInfo, canReEnroll, type ReEnrollStatus } from '../lib/faceMatcher';
 
 export default function EmployeeProfile() {
   const { user, logout, updateUser } = useAuth();
+  const navigate = useNavigate();
+  const cooldownWarnedRef = useRef(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(user?.name || '');
+  const [faceStatus, setFaceStatus] = useState<{
+    enrolled: boolean;
+    reEnroll: ReEnrollStatus | null;
+    loading: boolean;
+  }>({ enrolled: false, reEnroll: null, loading: true });
 
   const isActive = user?.status === 'active';
+
+  // Load face enrollment status
+  useEffect(() => {
+    if (!user?.id) return;
+    setFaceStatus((prev) => ({ ...prev, loading: true }));
+    getFaceEnrollmentInfo(user.id)
+      .then((info) => {
+        setFaceStatus({
+          enrolled: info.enrolled,
+          reEnroll: info.updatedAt ? canReEnroll(info.updatedAt) : null,
+          loading: false,
+        });
+      })
+      .catch(() => {
+        setFaceStatus({ enrolled: false, reEnroll: null, loading: false });
+      });
+  }, [user?.id]);
 
   const handleSave = () => {
     if (!editName.trim()) {
@@ -99,9 +124,72 @@ export default function EmployeeProfile() {
           </CardContent>
         </Card>
 
+        {/* ── Face Enrollment Card ── */}
+        <Card className="rounded-3xl border border-white/60 bg-white/80 backdrop-blur-xl drop-shadow-lg shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+          <CardContent className="p-5 space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="font-bold text-gray-800 text-lg">Data Wajah</h3>
+              {!faceStatus.loading && (
+                <div className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${
+                  faceStatus.enrolled ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'
+                }`}>
+                  <div className={`w-1.5 h-1.5 rounded-full ${faceStatus.enrolled ? 'bg-green-500' : 'bg-amber-500'}`} />
+                  {faceStatus.enrolled ? 'Terdafar' : 'Belum'}
+                </div>
+              )}
+            </div>
+
+            {faceStatus.loading ? (
+              <div className="flex items-center gap-2 text-sm text-gray-400">
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-teal-200 border-t-teal-600" />
+                Memuat status...
+              </div>
+            ) : faceStatus.enrolled ? (
+              <>
+                <p className="text-sm text-gray-500">
+                  Wajah Anda sudah terdaftar. Data wajah digunakan untuk verifikasi saat absen.
+                </p>
+                <Button
+                  variant="outline"
+                  className="w-full rounded-xl border-teal-200 text-teal-700 hover:bg-teal-50 font-semibold"
+                  onClick={() => {
+                    if (faceStatus.reEnroll && !faceStatus.reEnroll.allowed) {
+                      if (!cooldownWarnedRef.current) {
+                        cooldownWarnedRef.current = true;
+                        toast.warning(
+                          `Belum 30 hari sejak update terakhir (sisa ${faceStatus.reEnroll.daysLeft} hari). ` +
+                          `Ini hanya peringatan development — lanjutkan.`,
+                          { duration: 4000, id: 're-enroll-cooldown' }
+                        );
+                      }
+                    }
+                    navigate('/enroll-wajah?mode=update');
+                  }}
+                >
+                  <RefreshCw size={16} className="mr-2" />
+                  Perbarui Wajah
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-gray-500">
+                  Anda belum mendaftarkan wajah. Daftarkan sekarang untuk bisa melakukan absen.
+                </p>
+                <Button
+                  className="w-full rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold"
+                  onClick={() => navigate('/enroll-wajah')}
+                >
+                  <ScanFace size={16} className="mr-2" />
+                  Daftarkan Wajah Sekarang
+                </Button>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
         <Button 
           variant="ghost" 
-          className="w-full flex items-center gap-2 rounded-2xl py-6 bg-white border border-red-100 text-red-600 hover:bg-red-50 hover:text-red-700 drop-shadow-sm font-bold text-base mt-8"
+          className="w-full flex items-center gap-2 rounded-2xl py-6 bg-white border border-red-100 text-red-600 hover:bg-red-50 hover:text-red-700 drop-shadow-sm font-bold text-base mt-4"
           onClick={logout}
         >
           <LogOut size={20} />

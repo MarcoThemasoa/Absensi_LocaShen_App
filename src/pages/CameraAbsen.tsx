@@ -4,8 +4,8 @@ import Webcam from 'react-webcam';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
-import { ArrowLeft, CheckCircle2, ScanFace, MapPinned, XCircle, Loader2, Clock, AlertCircle } from 'lucide-react';
-import { getFaceLandmarker, isFaceLandmarkerReady } from '../lib/faceLandmarker';
+import { ArrowLeft, CheckCircle2, ScanFace, MapPinned, XCircle, Loader2, Clock, AlertCircle, ShieldCheck } from 'lucide-react';
+import { getFaceLandmarker, isFaceLandmarkerReady, extractDescriptor, matchDescriptor, FACE_MATCH_THRESHOLD } from '../lib/faceLandmarker';
 import type { FaceLandmarker } from '@mediapipe/tasks-vision';
 import { useAuth } from '../context/AuthContext';
 import { getCachedPosition } from '../lib/locationCache';
@@ -13,6 +13,7 @@ import { CheckInRequiredDialog } from '../components/CheckInRequiredDialog';
 import { supabase } from '../lib/supabase';
 import { fmtHHmm } from '../lib/utils';
 import { toast } from 'sonner';
+import { loadFaceDescriptor } from '../lib/faceMatcher';
 
 export default function CameraAbsen() {
   const { user, todayAttendance, locations, recordCheckIn, recordCheckOut, clearTodayAttendance } = useAuth();
@@ -34,6 +35,7 @@ export default function CameraAbsen() {
   
   const [faceLandmarker, setFaceLandmarker] = useState<FaceLandmarker | null>(null);
   const [isModelLoading, setIsModelLoading] = useState(!isFaceLandmarkerReady());
+  const [modelLoadError, setModelLoadError] = useState<string | null>(null);
   const requestRef = useRef<number | null>(null);
   const lastVideoTime = useRef<number>(-1);
   const [blinkDetected, setBlinkDetected] = useState(false);
@@ -42,14 +44,132 @@ export default function CameraAbsen() {
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastDetectionTime = useRef<number>(0);
   const DETECTION_INTERVAL = 150; // ms — throttle biar nggak tiap frame
+  const liveDescriptorRef = useRef<number[] | null>(null);
+  const [faceMatchScore, setFaceMatchScore] = useState<number | null>(null);
+  const [faceMatchPass, setFaceMatchPass] = useState<boolean | null>(null);
+  const [isFaceMatching, setIsFaceMatching] = useState(false);
 
-  // Cleanup timeouts + RAF on unmount / bfcache
+  // ── Continuous pre-check: deteksi wajah real-time di step 'face' ──
+  const storedDescriptorRef = useRef<number[] | null>(null);
+  const faceCheckFrameRef = useRef(0);
+  const [facePreCheckScore, setFacePreCheckScore] = useState<number | null>(null);
+  const [facePreCheckPass, setFacePreCheckPass] = useState<boolean | null>(null);
+  const [facePreChecking, setFacePreChecking] = useState(true);
+  const [facePreCheckFaceDetected, setFacePreCheckFaceDetected] = useState(false);
+
+  // Continuous face detection loop untuk step 'face'
+  const faceCheckLoop = useCallback(() => {
+    // Hanya stop kalau step berubah (bukan 'face')
+    if (step !== 'face') return;
+
+    // Kalau model/webcam belum siap → polling lagi
+    if (!faceLandmarker || !webcamRef.current?.video || webcamRef.current.video.readyState < 2) {
+      requestRef.current = requestAnimationFrame(faceCheckLoop);
+      return;
+    }
+
+    // Throttle deteksi biar tidak tiap frame
+    const now = performance.now();
+    if (now - lastDetectionTime.current < 200) {
+      requestRef.current = requestAnimationFrame(faceCheckLoop);
+      return;
+    }
+    lastDetectionTime.current = now;
+
+    const video = webcamRef.current.video;
+    if (video.videoWidth <= 0 || video.currentTime === lastVideoTime.current) {
+      requestRef.current = requestAnimationFrame(faceCheckLoop);
+      return;
+    }
+    lastVideoTime.current = video.currentTime;
+
+    try {
+      const results = faceLandmarker.detectForVideo(video, performance.now());
+      const hasFace = results.faceLandmarks && results.faceLandmarks.length > 0;
+      setFacePreCheckFaceDetected(!!hasFace);
+
+      if (hasFace && user?.id) {
+        const desc = extractDescriptor(results.faceLandmarks[0]);
+        if (desc && storedDescriptorRef.current) {
+          // Update skor setiap beberapa frame (biar halus)
+          faceCheckFrameRef.current++;
+          if (faceCheckFrameRef.current % 3 === 0) { // setiap ~600ms
+            const score = matchDescriptor(desc, storedDescriptorRef.current);
+            setFacePreCheckScore(score);
+            setFacePreCheckPass(score < FACE_MATCH_THRESHOLD);
+            setFacePreChecking(false);
+          }
+        } else if (desc && !storedDescriptorRef.current) {
+          // Belum ada stored — coba load sekali
+          setFacePreChecking(true);
+          loadFaceDescriptor(user.id)
+            .then((stored) => {
+              if (stored) {
+                storedDescriptorRef.current = stored;
+                const score = matchDescriptor(desc, stored);
+                setFacePreCheckScore(score);
+                setFacePreCheckPass(score < FACE_MATCH_THRESHOLD);
+              } else {
+                // Belum enrollment — izinkan
+                setFacePreCheckPass(true);
+                setFacePreCheckScore(null);
+              }
+            })
+            .catch(() => {
+              setFacePreCheckPass(true); // fallback: izinkan
+            })
+            .finally(() => {
+              setFacePreChecking(false);
+            });
+        }
+      }
+    } catch (err) {
+      console.error('[FaceCheckLoop] error:', err);
+    }
+
+    // Always schedule next frame
+    requestRef.current = requestAnimationFrame(faceCheckLoop);
+  }, [step, faceLandmarker, user?.id]);
+
+  // Start/stop face check loop
+  useEffect(() => {
+    if (step === 'face') {
+      // Mulai load stored descriptor di background
+      storedDescriptorRef.current = null;
+      faceCheckFrameRef.current = 0;
+      setFacePreCheckScore(null);
+      setFacePreCheckPass(null);
+      setFacePreChecking(true);
+      setFacePreCheckFaceDetected(false);
+
+      requestRef.current = requestAnimationFrame(faceCheckLoop);
+    }
+    return () => {
+      if (requestRef.current !== null && step !== 'liveness') {
+        // Jangan cancel kalau mau pindah ke liveness (detectBlink akan pakai RAF sendiri)
+        cancelAnimationFrame(requestRef.current);
+        requestRef.current = null;
+      }
+    };
+  }, [step, faceCheckLoop]);
+
+  // Cleanup RAF on unmount
   useEffect(() => {
     return () => {
       if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
       if (requestRef.current !== null) cancelAnimationFrame(requestRef.current);
     };
   }, []);
+
+  // Reset face state saat kembali ke location
+  useEffect(() => {
+    if (step === 'location') {
+      liveDescriptorRef.current = null;
+      setFaceMatchScore(null);
+      setFaceMatchPass(null);
+      setIsFaceMatching(false);
+    }
+  }, [step]);
 
   const SCHEDULE_END_HOUR = 17;
   const GRACE_END_HOUR = 20;
@@ -79,15 +199,34 @@ export default function CameraAbsen() {
 
   useEffect(() => {
     // Gunakan singleton — model sudah di-preload atau akan di-load sekali saja
+    setModelLoadError(null);
+    setIsModelLoading(true);
+
+    // Timeout 20 detik — tampilkan opsi skip kalau terlalu lama
+    const timeoutId = setTimeout(() => {
+      if (!isFaceLandmarkerReady()) {
+        setModelLoadError('Memuat model wajah terlalu lama. Periksa koneksi internet atau coba lagi.');
+        setIsModelLoading(false);
+      }
+    }, 20000);
+
     getFaceLandmarker()
       .then((landmarker) => {
+        clearTimeout(timeoutId);
         setFaceLandmarker(landmarker);
         setIsModelLoading(false);
+        setModelLoadError(null);
       })
       .catch((error) => {
+        clearTimeout(timeoutId);
         console.error('Error initializing FaceLandmarker', error);
         setIsModelLoading(false);
+        setModelLoadError(
+          'HP ini tidak mendukung deteksi wajah. Anda tetap bisa absen tanpa verifikasi wajah.'
+        );
       });
+
+    return () => clearTimeout(timeoutId);
   }, []);
 
   const detectBlink = useCallback(async () => {
@@ -120,6 +259,36 @@ export default function CameraAbsen() {
                setBlinkDetected(true);
                const imageSrc = webcamRef.current.getScreenshot();
                if (imageSrc) setPhoto(imageSrc);
+
+               // Extract face descriptor for matching
+               if (results.faceLandmarks && results.faceLandmarks.length > 0) {
+                 liveDescriptorRef.current = extractDescriptor(results.faceLandmarks[0]);
+               }
+
+               // Start face matching in background
+               if (user?.id) {
+                 setIsFaceMatching(true);
+                 loadFaceDescriptor(user.id)
+                   .then((storedDesc) => {
+                     if (storedDesc && liveDescriptorRef.current) {
+                       const score = matchDescriptor(liveDescriptorRef.current, storedDesc);
+                       setFaceMatchScore(score);
+                       setFaceMatchPass(score < FACE_MATCH_THRESHOLD);
+                       if (score >= FACE_MATCH_THRESHOLD) {
+                         console.warn(`[FaceMatch] Wajah tidak cocok! Score: ${score.toFixed(4)} (threshold: ${FACE_MATCH_THRESHOLD})`);
+                       } else {
+                         console.log(`[FaceMatch] Wajah cocok. Score: ${score.toFixed(4)}`);
+                       }
+                     }
+                   })
+                   .catch((err) => {
+                     console.error('[FaceMatch] Gagal load descriptor:', err);
+                     // Jika tidak ada descriptor (belum enroll), abaikan saja
+                   })
+                   .finally(() => {
+                     setIsFaceMatching(false);
+                   });
+               }
 
                // Small delay before moving to success
                successTimeoutRef.current = setTimeout(() => setStep('success'), 500);
@@ -275,6 +444,10 @@ export default function CameraAbsen() {
         if (isForgot) {
           updateData.is_forgot_clock_out = true;
         }
+        // Simpan face_match_score kalau ada hasil matching-nya
+        if (faceMatchScore !== null) {
+          updateData.face_match_score = faceMatchScore;
+        }
         console.log('[doSupabaseSave] Mencoba UPDATE attendance_records:', { userId: user?.id, date: today, updateData });
         const { data: updatedData, error } = await supabase
           .from('attendance_records')
@@ -301,9 +474,7 @@ export default function CameraAbsen() {
         const minNum = now.getMinutes();
         const isLateTime = hourNum > 8 || (hourNum === 8 && minNum > 0);
         console.log('[doSupabaseSave] Mencoba INSERT attendance_records:', { userId: user.id, date: today, time_in: timeStr });
-        const { data: insertedData, error } = await supabase
-          .from('attendance_records')
-          .insert({
+          const insertPayload: Record<string, any> = {
             user_id: user.id,
             date: today,
             time_in: timeStr,
@@ -311,8 +482,15 @@ export default function CameraAbsen() {
             location_lat: userLat,
             location_lng: userLng,
             photo_url: photo,
-          })
-          .select('id, user_id, date, time_in, status');
+          };
+          // Simpan face_match_score kalau ada hasil matching-nya
+          if (faceMatchScore !== null) {
+            insertPayload.face_match_score = faceMatchScore;
+          }
+          const { data: insertedData, error } = await supabase
+            .from('attendance_records')
+            .insert(insertPayload)
+            .select('id, user_id, date, time_in, status');
         console.log('[doSupabaseSave] Hasil INSERT:', { insertedData, error });
         if (error) {
           console.error('Gagal insert absen masuk:', error);
@@ -388,6 +566,7 @@ export default function CameraAbsen() {
             screenshotFormat="image/jpeg"
             videoConstraints={videoConstraints}
             className="absolute inset-0 h-full w-full object-cover"
+            style={{ transform: 'scaleX(-1)' }}
           />
           {/* Face guide overlay — cutout oval di tengah */}
           <div className="absolute inset-0 pointer-events-none z-10" aria-hidden="true">
@@ -404,9 +583,57 @@ export default function CameraAbsen() {
           
           <div className="absolute bottom-24 left-0 right-0 px-6 text-center z-20">
             {step === 'face' && (
-              <div className="bg-black/30 p-4 rounded-2xl mb-6 border border-white/10">
-                <ScanFace size={36} className="mx-auto mb-3 text-teal-400" />
-                <p className="font-medium">Posisikan wajah Anda di dalam bingkai</p>
+              <div className={`bg-black/40 p-4 rounded-2xl mb-4 border backdrop-blur-sm transition-colors ${
+                !facePreCheckFaceDetected
+                  ? 'border-red-500/30'
+                  : facePreCheckPass === null
+                    ? 'border-white/10'
+                    : facePreCheckPass
+                      ? 'border-green-500/50'
+                      : 'border-amber-500/50'
+              }`}>
+                <ScanFace size={32} className="mx-auto mb-2 text-teal-400" />
+                <p className="font-medium text-sm">
+                  {!facePreCheckFaceDetected
+                    ? 'Wajah tidak terdeteksi — posisikan di dalam bingkai'
+                    : 'Posisikan wajah Anda di dalam bingkai'}
+                </p>
+
+                {/* Face not detected warning */}
+                {!facePreCheckFaceDetected && (
+                  <p className="mt-2 text-[11px] text-red-300/80">
+                    Pastikan wajah terlihat jelas dan pencahayaan cukup
+                  </p>
+                )}
+
+                {/* Checking spinner */}
+                {facePreCheckFaceDetected && facePreChecking && facePreCheckScore === null && (
+                  <div className="mt-2 flex items-center justify-center gap-2 text-xs text-teal-300">
+                    <Loader2 size={12} className="animate-spin" />
+                    Memverifikasi data wajah...
+                  </div>
+                )}
+
+                {/* Result: cocok */}
+                {facePreCheckFaceDetected && !facePreChecking && facePreCheckPass === true && (
+                  <div className="mt-2 flex items-center justify-center gap-1.5 text-xs font-semibold text-green-300">
+                    <ShieldCheck size={14} />
+                    Wajah terverifikasi {facePreCheckScore !== null && `(skor ${facePreCheckScore.toFixed(3)})`}
+                  </div>
+                )}
+
+                {/* Result: tidak cocok */}
+                {facePreCheckFaceDetected && !facePreChecking && facePreCheckPass === false && (
+                  <div className="mt-2">
+                    <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-amber-300">
+                      <ShieldCheck size={14} />
+                      Wajah tidak cocok (skor {facePreCheckScore?.toFixed(3) ?? '-'})
+                    </div>
+                    <p className="mt-1 text-[10px] text-amber-400/70">
+                      Anda tetap bisa lanjut — admin akan mendapat notifikasi
+                    </p>
+                  </div>
+                )}
               </div>
             )}
             {step === 'liveness' && (
@@ -417,16 +644,46 @@ export default function CameraAbsen() {
             )}
             
             {step === 'face' && (
-              <Button 
-                size="lg" 
-                className="w-full bg-teal-600 hover:bg-teal-500 rounded-2xl font-bold h-16 text-xl"
-                onClick={handleNextStep}
-                disabled={isModelLoading}
-              >
-                {isModelLoading ? (
-                  <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Memuat Model...</>
-                ) : 'Mulai Pemindaian'}
-              </Button>
+              <>
+                {/* Model error: HP tidak support */}
+                {modelLoadError && (
+                  <div className="mb-4 p-3 rounded-xl bg-red-900/40 border border-red-500/30 text-center">
+                    <p className="text-xs text-red-200">{modelLoadError}</p>
+                    <Button
+                      size="sm"
+                      className="mt-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-sm font-semibold"
+                      onClick={() => {
+                        // Model gagal — skip face + liveness, langsung foto
+                        const imageSrc = webcamRef.current?.getScreenshot();
+                        if (imageSrc) setPhoto(imageSrc);
+                        setStep('success');
+                      }}
+                    >
+                      Lewati Verifikasi Wajah
+                    </Button>
+                  </div>
+                )}
+
+                <Button 
+                  size="lg" 
+                  className={`w-full rounded-2xl font-bold h-16 text-xl transition-all ${
+                    !facePreCheckFaceDetected
+                      ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                      : 'bg-teal-600 hover:bg-teal-500 text-white'
+                  }`}
+                  onClick={handleNextStep}
+                  disabled={isModelLoading || !facePreCheckFaceDetected}
+                >
+                  {isModelLoading ? (
+                    <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Memuat Model...</>
+                  ) : !facePreCheckFaceDetected ? (
+                    'Tunggu Wajah Terdeteksi'
+
+                  ) : (
+                    'Lanjutkan Absen'
+                  )}
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -438,7 +695,37 @@ export default function CameraAbsen() {
           <ArrowLeft size={24} />
         </button>
         <h2 className="font-bold text-lg tracking-wide drop-shadow-md">{isCheckOut ? 'Absen Keluar' : 'Absen Masuk'}</h2>
-        <div className="w-10"></div>
+        
+        {/* ── Real-time face match score (step 'face' saja) ── */}
+        {step === 'face' && (
+          <div className="flex items-center gap-2">
+            {facePreChecking && !facePreCheckFaceDetected && (
+              <span className="text-[11px] text-gray-400 bg-black/30 px-2 py-1 rounded-full">
+                Cari wajah...
+              </span>
+            )}
+            {facePreChecking && facePreCheckFaceDetected && facePreCheckScore === null && (
+              <span className="flex items-center gap-1 text-[11px] text-teal-300 bg-black/30 px-2 py-1 rounded-full">
+                <Loader2 size={10} className="animate-spin" />
+                Memeriksa...
+              </span>
+            )}
+            {!facePreChecking && facePreCheckScore !== null && (
+              <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                facePreCheckPass
+                  ? 'bg-green-500/30 text-green-200 border border-green-400/40'
+                  : 'bg-red-500/30 text-red-200 border border-red-400/40'
+              }`}>
+                Skor: {facePreCheckScore.toFixed(3)}
+              </span>
+            )}
+            {!facePreChecking && facePreCheckPass === true && facePreCheckScore === null && (
+              <span className="text-xs font-bold text-teal-300 bg-teal-500/20 px-2.5 py-1 rounded-full border border-teal-400/30">
+                Siap
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {step === 'location' && (
@@ -485,7 +772,7 @@ export default function CameraAbsen() {
                       </div>
                     </div>
                   )}
-                  <Button onClick={handleNextStep} className="w-full h-14 bg-teal-950 hover:bg-teal-900 rounded-2xl text-lg font-bold">Lanjut ke Kamera</Button>
+                  <Button onClick={handleNextStep} className="w-full h-14 bg-teal-950 hover:bg-teal-900 rounded-2xl text-lg font-bold">Lanjutkan Absen</Button>
                 </div>
               ) : (
                 <div className="flex flex-col items-center">
@@ -574,6 +861,16 @@ export default function CameraAbsen() {
                 <p className="font-bold text-teal-100 text-sm">Durasi Kerja</p>
                 <p className="text-teal-200 text-xs mt-1">Masuk: {fmtHHmm(todayAttendance.checkInTime)}</p>
               </div>
+            </div>
+          )}
+
+          {/* Small warning only when face doesn't match */}
+          {faceMatchPass === false && (
+            <div className="flex items-center gap-2 bg-amber-500/20 border border-amber-500/40 rounded-xl px-3 py-2 mb-4">
+              <ShieldCheck size={14} className="text-amber-300 flex-shrink-0" />
+              <p className="text-xs text-amber-200">
+                Wajah tidak cocok (skor {faceMatchScore?.toFixed(2) ?? '-'})
+              </p>
             </div>
           )}
           
