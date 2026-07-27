@@ -11,12 +11,13 @@ import { useAuth } from '../context/AuthContext';
 import { getCachedPosition } from '../lib/locationCache';
 import { CheckInRequiredDialog } from '../components/CheckInRequiredDialog';
 import { supabase } from '../lib/supabase';
+import { invalidateCache } from '../lib/supabaseCache';
 import { fmtHHmm } from '../lib/utils';
 import { toast } from 'sonner';
 import { loadFaceDescriptor } from '../lib/faceMatcher';
 
 export default function CameraAbsen() {
-  const { user, todayAttendance, locations, recordCheckIn, recordCheckOut, clearTodayAttendance } = useAuth();
+  const { user, todayAttendance, locations, recordCheckIn, recordCheckOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const webcamRef = useRef<Webcam>(null);
@@ -380,7 +381,7 @@ export default function CameraAbsen() {
           setInRange(false);
           setGpsLoading(false);
         },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+        { enableHighAccuracy: false, timeout: 15000, maximumAge: 0 }
       );
     } else {
       setInRange(false);
@@ -467,7 +468,7 @@ export default function CameraAbsen() {
           return;
         }
         console.log('[doSupabaseSave] Berhasil update', updatedData.length, 'record');
-        clearTodayAttendance();
+        invalidateCache('dashboard:recent');
       } else if (user?.id) {
         const now = new Date();
         const hourNum = now.getHours();
@@ -500,6 +501,7 @@ export default function CameraAbsen() {
           toast.error('Absen masuk gagal disimpan. Cek RLS policy Supabase.');
         } else {
           console.log('[doSupabaseSave] Berhasil insert', insertedData.length, 'record');
+          invalidateCache('dashboard:recent');
         }
       }
     } catch (e) {
@@ -510,8 +512,8 @@ export default function CameraAbsen() {
 
   const videoConstraints = {
     facingMode: "user",
-    width: { ideal: 640 },
-    height: { ideal: 480 },
+    width: { ideal: 320 },
+    height: { ideal: 240 },
   };
 
   if (showOutOfHoursDialog) {
@@ -556,9 +558,9 @@ export default function CameraAbsen() {
 
   return (
     <div className="relative bg-black text-white h-full w-full overflow-hidden">
-      {/* Camera view — full screen dari ujung atas */}
-      {(step === 'face' || step === 'liveness') && (
-        <div className="absolute inset-0 overflow-hidden bg-black">
+      {/* Camera view — pre-init sejak location step supaya stream langsung siap */}
+      {step !== 'success' && step !== 'error' && (
+        <div className={`absolute inset-0 overflow-hidden bg-black ${step === 'location' ? 'invisible' : ''}`}>
           {/* @ts-ignore react-webcam types issue */}
           <Webcam
             audio={false}
@@ -770,6 +772,12 @@ export default function CameraAbsen() {
                         <p className="text-gray-400 text-xs font-medium uppercase tracking-wide">Keluar</p>
                         <p className="text-lg font-bold text-teal-700">{todayAttendance.checkOutTime ? todayAttendance.checkOutTime.slice(0, 5) : '— : —'}</p>
                       </div>
+                    </div>
+                  )}
+                  {isModelLoading && (
+                    <div className="mb-4 text-xs text-teal-600 flex items-center justify-center gap-1.5 bg-teal-50 py-2 px-4 rounded-full border border-teal-100">
+                      <Loader2 size={12} className="animate-spin" />
+                      Menyiapkan kamera...
                     </div>
                   )}
                   <Button onClick={handleNextStep} className="w-full h-14 bg-teal-950 hover:bg-teal-900 rounded-2xl text-lg font-bold">Lanjutkan Absen</Button>

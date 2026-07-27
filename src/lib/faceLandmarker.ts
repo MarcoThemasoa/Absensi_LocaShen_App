@@ -43,7 +43,7 @@ export async function getFaceLandmarker(): Promise<FaceLandmarker> {
 
   loadingPromise = (async () => {
     const vision = await FilesetResolver.forVisionTasks(
-      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm',
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm',
     );
 
     // Coba GPU dulu, fallback ke CPU kalau gagal

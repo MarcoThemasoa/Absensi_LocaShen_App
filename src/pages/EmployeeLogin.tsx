@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { validateLoginForm } from '../lib/validators';
 
 export default function EmployeeLogin() {
-  const [id, setId] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -28,7 +28,7 @@ export default function EmployeeLogin() {
     e.preventDefault();
     
     // Validate form
-    const validation = validateLoginForm(id, password);
+    const validation = validateLoginForm(email, password);
     if (!validation.isValid) {
       setValidationErrors(validation.errors);
       validation.errors.forEach(error => toast.error(error));
@@ -38,7 +38,7 @@ export default function EmployeeLogin() {
     setValidationErrors([]);
     setLoading(true);
     try {
-      await login(id, password, 'employee');
+      await login(email, password, 'employee');
       toast.success('Login berhasil');
       navigate('/dashboard');
     } catch (error: any) {
@@ -75,13 +75,14 @@ export default function EmployeeLogin() {
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-3">
               <div className="space-y-1.5">
-                <Label htmlFor="employeeId">ID Karyawan / Email</Label>
+                <Label htmlFor="email">Email</Label>
                 <Input 
-                  id="employeeId" 
-                  placeholder="Masukkan ID / Email" 
-                  value={id}
+                  id="email" 
+                  type="email"
+                  placeholder="contoh@email.com" 
+                  value={email}
                   onChange={(e) => {
-                    setId(e.target.value);
+                    setEmail(e.target.value);
                     setValidationErrors([]);
                   }}
                   disabled={loading}
@@ -116,9 +117,9 @@ export default function EmployeeLogin() {
                 </p>
               </div>
               <div className="flex justify-end gap-2 mt-1 flex-wrap">
-                <button type="button" onClick={() => { setId('budi@geoface.com'); setPassword('Test@123'); }} className="text-xs text-teal-600 font-medium hover:underline" disabled={loading}>Demo Budi</button>
-                <button type="button" onClick={() => { setId('agus@geoface.com'); setPassword('Test@123'); }} className="text-xs text-teal-600 font-medium hover:underline" disabled={loading}>Demo Agus</button>
-                <button type="button" onClick={() => { setId('siti@geoface.com'); setPassword('Test@123'); }} className="text-xs text-amber-600 font-medium hover:underline" disabled={loading}>Demo Siti (pending)</button>
+                <button type="button" onClick={() => { setEmail('budi@geoface.com'); setPassword('Test@123'); }} className="text-xs text-teal-600 font-medium hover:underline" disabled={loading}>Demo Budi</button>
+                <button type="button" onClick={() => { setEmail('agus@geoface.com'); setPassword('Test@123'); }} className="text-xs text-teal-600 font-medium hover:underline" disabled={loading}>Demo Agus</button>
+                <button type="button" onClick={() => { setEmail('siti@geoface.com'); setPassword('Test@123'); }} className="text-xs text-amber-600 font-medium hover:underline" disabled={loading}>Demo Siti (pending)</button>
               </div>
             </div>
             <Button 

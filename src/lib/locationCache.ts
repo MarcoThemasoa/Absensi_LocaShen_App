@@ -36,7 +36,7 @@ export function initLocationCache() {
       cachedError = error.message;
       isResolved = true;
     },
-    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    { enableHighAccuracy: false, timeout: 15000, maximumAge: 0 }
   );
 }
 

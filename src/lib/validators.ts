@@ -7,11 +7,14 @@ export interface ValidationResult {
   errors: string[];
 }
 
-export const validateEmployeeId = (id: string): ValidationResult => {
+export const validateEmail = (email: string): ValidationResult => {
   const errors: string[] = [];
 
-  if (!id || id.trim() === '') {
-    errors.push('ID Karyawan tidak boleh kosong');
+  const trimmed = email?.trim() || '';
+  if (!trimmed) {
+    errors.push('Email tidak boleh kosong');
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+    errors.push('Format email tidak valid');
   }
 
   return {
@@ -62,13 +65,13 @@ export const validatePassword = (password: string): ValidationResult => {
 };
 
 export const validateLoginForm = (
-  id: string,
+  email: string,
   password: string
 ): ValidationResult => {
-  const idValidation = validateEmployeeId(id);
+  const emailValidation = validateEmail(email);
   const passwordValidation = validatePassword(password);
 
-  const allErrors = [...idValidation.errors, ...passwordValidation.errors];
+  const allErrors = [...emailValidation.errors, ...passwordValidation.errors];
 
   return {
     isValid: allErrors.length === 0,

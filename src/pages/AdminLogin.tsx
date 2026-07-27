@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { validatePassword } from '../lib/validators';
 
 export default function AdminLogin() {
-  const [id, setId] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -38,7 +38,7 @@ export default function AdminLogin() {
     setValidationErrors([]);
     setLoading(true);
     try {
-      await login(id, password, 'admin');
+      await login(email, password, 'admin');
       toast.success('Login Admin berhasil');
       navigate('/admin/dashboard');
     } catch (error: any) {
@@ -64,13 +64,14 @@ export default function AdminLogin() {
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-3">
               <div className="space-y-1.5">
-                <Label htmlFor="adminId">Admin ID / Email</Label>
+                <Label htmlFor="adminEmail">Email</Label>
                 <Input 
-                  id="adminId" 
-                  placeholder="Masukkan ID Admin / Email" 
-                  value={id}
+                  id="adminEmail" 
+                  type="email"
+                  placeholder="contoh@email.com" 
+                  value={email}
                   onChange={(e) => {
-                    setId(e.target.value);
+                    setEmail(e.target.value);
                     setValidationErrors([]);
                   }}
                   required
@@ -105,7 +106,7 @@ export default function AdminLogin() {
                 </p>
               </div>
               <div className="flex justify-end mt-1">
-                <button type="button" onClick={() => { setId('admin@geoface.com'); setPassword('Admin@123'); }} className="text-xs text-teal-600 font-medium hover:underline">Demo Admin</button>
+                <button type="button" onClick={() => { setEmail('admin@geoface.com'); setPassword('Admin@123'); }} className="text-xs text-teal-600 font-medium hover:underline">Demo Admin</button>
               </div>
             </div>
 

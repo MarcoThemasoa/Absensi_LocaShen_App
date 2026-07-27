@@ -1,40 +1,36 @@
--- ==========================================
--- Migration: Add face_embeddings table
--- Untuk enrollment wajah mandiri oleh karyawan
--- ==========================================
+-- ============================================================
+-- Migration: Fix Multiple Permissive Policies on face_embeddings
+--
+-- Masalah:
+--   "Users can manage own face embeddings" → FOR ALL (termasuk SELECT)
+--   "Admins can view all face embeddings" → FOR SELECT
+--   → Multiple permissive policies untuk action SELECT di role yg sama
+--
+-- Fix:
+--   1. Hapus kedua policy lama
+--   2. SELECT: merge jadi 1 policy (user own OR admin all)
+--   3. INSERT/UPDATE/DELETE: terpisah, hanya untuk user sendiri
+-- ============================================================
 
--- 1. Create table
-create table if not exists public.face_embeddings (
-  id uuid default gen_random_uuid() primary key,
-  user_id uuid references public.users(id) not null unique,
-  descriptor float8[] not null,
-  created_at timestamptz default timezone('utc'::text, now()) not null,
-  updated_at timestamptz default timezone('utc'::text, now()) not null
-);
-
--- 2. Index
-create index if not exists idx_face_embeddings_user on public.face_embeddings(user_id);
-
--- 3. RLS
-alter table public.face_embeddings enable row level security;
-
--- 4. Policy: SELECT — user own OR admin all (merged to avoid multiple permissive policies)
+-- 1. Hapus policy lama
 drop policy if exists "Users can manage own face embeddings" on public.face_embeddings;
 drop policy if exists "Admins can view all face embeddings" on public.face_embeddings;
+
+-- 2. SELECT — satu policy merged
 drop policy if exists "Users view own or admins view all face embeddings" on public.face_embeddings;
 create policy "Users view own or admins view all face embeddings"
   on public.face_embeddings
   for select
   using ( (select auth.uid()) = user_id or public.is_admin() );
 
--- 5. Policy: INSERT — only own face enrollment
+-- 3. INSERT — hanya user sendiri (saat enrollment wajah)
 drop policy if exists "Users can insert own face embeddings" on public.face_embeddings;
 create policy "Users can insert own face embeddings"
   on public.face_embeddings
   for insert
   with check ( (select auth.uid()) = user_id );
 
--- 6. Policy: UPDATE — only own face embeddings
+-- 4. UPDATE — hanya user sendiri
 drop policy if exists "Users can update own face embeddings" on public.face_embeddings;
 create policy "Users can update own face embeddings"
   on public.face_embeddings
@@ -42,7 +38,7 @@ create policy "Users can update own face embeddings"
   using ( (select auth.uid()) = user_id )
   with check ( (select auth.uid()) = user_id );
 
--- 7. Policy: DELETE — only own face embeddings
+-- 5. DELETE — hanya user sendiri
 drop policy if exists "Users can delete own face embeddings" on public.face_embeddings;
 create policy "Users can delete own face embeddings"
   on public.face_embeddings

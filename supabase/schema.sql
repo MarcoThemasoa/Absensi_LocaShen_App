@@ -380,13 +380,30 @@ create policy "Users can update own or admins update all attendance" on public.a
 --    (already single policy per command — no change needed structurally)
 
 -- 6. RLS — Face Embeddings (added for self-enrollment flow)
+-- NOTE: SELECT policies are merged into one to avoid "multiple permissive policies" linter warning.
 drop policy if exists "Users can manage own face embeddings" on public.face_embeddings;
-create policy "Users can manage own face embeddings" on public.face_embeddings
-  for all
+drop policy if exists "Admins can view all face embeddings" on public.face_embeddings;
+drop policy if exists "Users view own or admins view all face embeddings" on public.face_embeddings;
+create policy "Users view own or admins view all face embeddings"
+  on public.face_embeddings
+  for select
+  using ( (select auth.uid()) = user_id or public.is_admin() );
+
+drop policy if exists "Users can insert own face embeddings" on public.face_embeddings;
+create policy "Users can insert own face embeddings"
+  on public.face_embeddings
+  for insert
+  with check ( (select auth.uid()) = user_id );
+
+drop policy if exists "Users can update own face embeddings" on public.face_embeddings;
+create policy "Users can update own face embeddings"
+  on public.face_embeddings
+  for update
   using ( (select auth.uid()) = user_id )
   with check ( (select auth.uid()) = user_id );
 
-drop policy if exists "Admins can view all face embeddings" on public.face_embeddings;
-create policy "Admins can view all face embeddings" on public.face_embeddings
-  for select
-  using ( public.is_admin() );
+drop policy if exists "Users can delete own face embeddings" on public.face_embeddings;
+create policy "Users can delete own face embeddings"
+  on public.face_embeddings
+  for delete
+  using ( (select auth.uid()) = user_id );
