@@ -100,7 +100,7 @@ export default function FaceEnrollment() {
   const poseCapturedRef = useRef<Set<PoseId>>(new Set());
   const currentPoseIdxRef = useRef<number>(0);
   const stepRef = useRef<EnrollStep>('prepare');
-  const detectionLogicRef = useRef<() => void>();
+  const detectionLogicRef = useRef<() => void>(undefined);
 
   const [isModelLoading, setIsModelLoading] = useState(!isFaceLandmarkerReady());
   const [step, setStep] = useState<EnrollStep>('prepare');
