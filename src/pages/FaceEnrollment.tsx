@@ -28,6 +28,8 @@ import {
   isBlinking,
   POSE_YAW_THRESHOLD,
   POSE_PITCH_THRESHOLD,
+  getDetectionIntervalMs,
+  isLowEndDevice,
 } from '../lib/faceLandmarker';
 import type { FaceLandmarker } from '@mediapipe/tasks-vision';
 import { useAuth } from '../context/AuthContext';
@@ -37,11 +39,18 @@ import { toast } from 'sonner';
 // ── Guided pose sequence ──
 type PoseId = 'right' | 'left' | 'up' | 'down' | 'blink';
 
+/** Pose harus DITAHAN selama ini sebelum di-capture (ms) —
+ *  mencegah 1 frame noise/kedutan langsung dianggap valid.
+ *  Kedip (holdMs: 0) dikecualikan karena mata menutup hanya ~100-300ms. */
+const POSE_HOLD_MS = 800;
+
 interface PoseDef {
   id: PoseId;
   icon: typeof ArrowRight;
   instruction: string;
   hint: string;
+  /** Lama pose harus ditahan (ms) sebelum di-capture. 0 = instan (kedip). */
+  holdMs: number;
   check: (pose: ReturnType<typeof estimateHeadPose>, blendshapes: { categoryName: string; score: number }[]) => boolean;
 }
 
@@ -51,6 +60,7 @@ const POSE_SEQUENCE: PoseDef[] = [
     icon: ArrowRight,
     instruction: 'Tengok ke Kanan',
     hint: 'Hadapkan wajah perlahan ke arah kanan Anda',
+    holdMs: POSE_HOLD_MS,
     check: (pose) => pose.yaw > POSE_YAW_THRESHOLD,
   },
   {
@@ -58,6 +68,7 @@ const POSE_SEQUENCE: PoseDef[] = [
     icon: ArrowLeftIcon,
     instruction: 'Tengok ke Kiri',
     hint: 'Hadapkan wajah perlahan ke arah kiri Anda',
+    holdMs: POSE_HOLD_MS,
     check: (pose) => pose.yaw < -POSE_YAW_THRESHOLD,
   },
   {
@@ -65,6 +76,7 @@ const POSE_SEQUENCE: PoseDef[] = [
     icon: ArrowUp,
     instruction: 'Lihat ke Atas',
     hint: 'Angkat wajah Anda perlahan ke atas (mendongak)',
+    holdMs: POSE_HOLD_MS,
     check: (pose) => pose.pitch > POSE_PITCH_THRESHOLD,
   },
   {
@@ -72,6 +84,7 @@ const POSE_SEQUENCE: PoseDef[] = [
     icon: ArrowDown,
     instruction: 'Tengok ke Bawah',
     hint: 'Turunkan wajah Anda perlahan ke bawah (menunduk)',
+    holdMs: POSE_HOLD_MS,
     check: (pose) => pose.pitch < -POSE_PITCH_THRESHOLD,
   },
   {
@@ -79,6 +92,7 @@ const POSE_SEQUENCE: PoseDef[] = [
     icon: Eye,
     instruction: 'Kedipkan Mata',
     hint: 'Kedipkan kedua mata Anda untuk verifikasi',
+    holdMs: 0, // kedip instan — tidak perlu ditahan (mata menutup hanya ~100-300ms)
     check: (_pose, blendshapes) => isBlinking(blendshapes),
   },
 ];
@@ -101,10 +115,38 @@ export default function FaceEnrollment() {
   const currentPoseIdxRef = useRef<number>(0);
   const stepRef = useRef<EnrollStep>('prepare');
   const detectionLogicRef = useRef<() => void>(undefined);
+  const meshCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Pose harus DITAHAN selama ini sebelum di-capture (ms) —
+  // mencegah 1 frame noise/kedutan langsung dianggap valid.
+  const poseHoldStartRef = useRef(0);
+
+  /**
+   * Cek apakah SELURUH wajah terbaca (tidak terpotong tepi bingkai).
+   * Kalau wajah terlalu dekat/terlalu besar, bagian kepala (dahi/dagu)
+   * terpotong → data wajah tidak lengkap. Margin dihitung dari ukuran
+   * landmark wajah (bukan posisi di video) biar konsisten di jarak mana pun.
+   */
+  const isFaceFullyVisible = (
+    landmarks: { x: number; y: number }[]
+  ): boolean => {
+    if (!landmarks || landmarks.length === 0) return false;
+    let minX = 1, maxX = 0, minY = 1, maxY = 0;
+    for (const lm of landmarks) {
+      if (lm.x < minX) minX = lm.x;
+      if (lm.x > maxX) maxX = lm.x;
+      if (lm.y < minY) minY = lm.y;
+      if (lm.y > maxY) maxY = lm.y;
+    }
+    // Margin minimal dari tepi video (normalized 0–1).
+    // Bisa disesuaikan: makin besar → makin jauh dari tepi yang diminta.
+    const MARGIN = 0.05;
+    return minX >= MARGIN && maxX <= 1 - MARGIN && minY >= MARGIN && maxY <= 1 - MARGIN;
+  };
 
   const [isModelLoading, setIsModelLoading] = useState(!isFaceLandmarkerReady());
   const [step, setStep] = useState<EnrollStep>('prepare');
   const [faceDetected, setFaceDetected] = useState(false);
+  const [facePartiallyVisible, setFacePartiallyVisible] = useState(false);
   const [currentPoseIdx, setCurrentPoseIdx] = useState(0);
   const [capturedPoses, setCapturedPoses] = useState<Set<PoseId>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
@@ -147,6 +189,37 @@ export default function FaceEnrollment() {
     stepRef.current = step;
   }, [step]);
 
+  // ── Face mesh overlay — gambar 478 titik landmark di atas video ──
+  // Canvas diset seukuran video asli (videoWidth × videoHeight), lalu diberi
+  // CSS yang SAMA dengan <Webcam> (object-cover + scaleX(-1)) supaya titik
+  // yang digambar di koordinat normalized tadi jatuh persis di wajah.
+  const drawFaceMesh = (
+    landmarks: { x: number; y: number; z: number }[]
+  ) => {
+    const canvas = meshCanvasRef.current;
+    const video = webcamRef.current?.video;
+    if (!canvas || !video || !video.videoWidth || !video.videoHeight) return;
+
+    if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
+    if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!landmarks || landmarks.length === 0) return;
+
+    // Titik kecil & transparan — biar tidak menutupi wajah
+    ctx.fillStyle = 'rgba(94, 234, 212, 0.35)'; // teal-300, opacity rendah
+    const radius = Math.max(1, canvas.width / 640); // ~1px untuk video 640px
+
+    for (const lm of landmarks) {
+      ctx.beginPath();
+      ctx.arc(lm.x * canvas.width, lm.y * canvas.height, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  };
+
   // ── Detection logic — stored in ref to avoid stale closure in RAF ──
   // This effect runs on every render, keeping detectionLogicRef.current up-to-date.
   useEffect(() => {
@@ -154,11 +227,12 @@ export default function FaceEnrollment() {
       if (stepRef.current !== 'capturing') return;
 
       if (!faceLandmarkerRef.current || !webcamRef.current?.video || webcamRef.current.video.readyState < 2) {
+        drawFaceMesh([]); // kosongkan mesh kalau webcam/model belum siap
         return; // tick() will reschedule
       }
 
       const now = performance.now();
-      if (now - lastDetectionTime.current < 40) { // ~25 fps — lebih responsif
+      if (now - lastDetectionTime.current < getDetectionIntervalMs(40)) { // ~25fps di device normal, lebih hemat di low-end
         return;
       }
       lastDetectionTime.current = now;
@@ -174,6 +248,16 @@ export default function FaceEnrollment() {
         const hasFace = results.faceLandmarks && results.faceLandmarks.length > 0;
         setFaceDetected(!!hasFace);
 
+        // Wajah terdeteksi tapi terpotong tepi → beri tahu user untuk mundur
+        if (hasFace) {
+          setFacePartiallyVisible(!isFaceFullyVisible(results.faceLandmarks[0]));
+        } else {
+          setFacePartiallyVisible(false);
+        }
+
+        // ── Gambar titik landmark setiap frame ──
+        drawFaceMesh(results.faceLandmarks?.[0] ?? []);
+
         const idx = currentPoseIdxRef.current;
         const poseDef = POSE_SEQUENCE[idx];
         const allDone = poseCapturedRef.current.size >= POSE_SEQUENCE.length;
@@ -183,25 +267,53 @@ export default function FaceEnrollment() {
           const blendshapes = results.faceBlendshapes?.[0]?.categories ?? [];
           const headPose = estimateHeadPose(landmarks);
           const captured = poseCapturedRef.current.has(poseDef.id);
+          const faceFullyVisible = isFaceFullyVisible(landmarks);
 
-          if (!captured && poseDef.check(headPose, blendshapes)) {
-            // Capture this pose
-            const desc = extractDescriptor(landmarks);
-            if (desc) {
-              capturedFrames.current.push(desc);
-              poseCapturedRef.current.add(poseDef.id);
-              setCapturedPoses(new Set(poseCapturedRef.current));
+          // ── Wajah harus terbaca PENUH (tidak terpotong tepi) ──
+          // Kalau wajah terlalu dekat sehingga dahi/dagu terpotong, pose
+          // tidak dianggap valid — dorong pengguna mundur sedikit.
+          if (!faceFullyVisible) {
+            poseHoldStartRef.current = 0; // jangan pernah capture kalau kepotong
+          }
 
-              // Move to next pose
-              const nextIdx = idx + 1;
-              if (nextIdx < POSE_SEQUENCE.length) {
-                currentPoseIdxRef.current = nextIdx;
-                setCurrentPoseIdx(nextIdx);
-              } else {
-                // All done!
-                setTimeout(() => handleSave(), 400);
+          if (!captured && faceFullyVisible && poseDef.check(headPose, blendshapes)) {
+            // ── Syarat pose ditahan: cegah 1 frame noise langsung valid ──
+            // Pose harus dipertahankan selama POSE_HOLD_MS berturut-turut
+            // sebelum di-capture. Kalau bergerak balik di tengah, hitungan reset.
+            // KECUALI kedip (holdMs=0): mata menutup hanya ~100-300ms, jadi
+            // harus di-capture seketika saat kedip terdeteksi.
+            const nowMs = performance.now();
+            const heldEnough = poseDef.holdMs === 0
+              || (poseHoldStartRef.current !== 0
+                && nowMs - poseHoldStartRef.current >= poseDef.holdMs);
+
+            if (poseDef.holdMs > 0 && poseHoldStartRef.current === 0) {
+              poseHoldStartRef.current = nowMs; // mulai hitung tahan
+            }
+
+            if (heldEnough) {
+              // Capture this pose
+              const desc = extractDescriptor(landmarks);
+              if (desc) {
+                capturedFrames.current.push(desc);
+                poseCapturedRef.current.add(poseDef.id);
+                setCapturedPoses(new Set(poseCapturedRef.current));
+                poseHoldStartRef.current = 0; // reset utk pose berikutnya
+
+                // Move to next pose
+                const nextIdx = idx + 1;
+                if (nextIdx < POSE_SEQUENCE.length) {
+                  currentPoseIdxRef.current = nextIdx;
+                  setCurrentPoseIdx(nextIdx);
+                } else {
+                  // All done!
+                  setTimeout(() => handleSave(), 400);
+                }
               }
             }
+          } else {
+            // Pose tidak terpenuhi → reset hitungan tahan (harus mulai dari nol)
+            poseHoldStartRef.current = 0;
           }
         }
       } catch (err) {
@@ -231,6 +343,7 @@ export default function FaceEnrollment() {
     capturedFrames.current = [];
     poseCapturedRef.current = new Set();
     currentPoseIdxRef.current = 0;
+    poseHoldStartRef.current = 0;
     setCurrentPoseIdx(0);
     setCapturedPoses(new Set());
     setFaceDetected(false);
@@ -380,8 +493,20 @@ export default function FaceEnrollment() {
             audio={false}
             ref={webcamRef}
             screenshotFormat="image/jpeg"
-            videoConstraints={{ facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }}
+            videoConstraints={{
+              facingMode: 'user',
+              // Resolusi lebih rendah di HP low-end → lebih ringan buat MediaPipe
+              width: { ideal: isLowEndDevice() ? 480 : 640 },
+              height: { ideal: isLowEndDevice() ? 360 : 480 },
+            }}
             className="absolute inset-0 h-full w-full object-cover"
+            style={{ transform: 'scaleX(-1)' }}
+          />
+
+          {/* Face mesh overlay — titik landmark real-time (mirror-aware) */}
+          <canvas
+            ref={meshCanvasRef}
+            className="absolute inset-0 h-full w-full object-cover pointer-events-none z-[15]"
             style={{ transform: 'scaleX(-1)' }}
           />
 
@@ -440,6 +565,12 @@ export default function FaceEnrollment() {
                 {!faceDetected && (
                   <p className="text-red-300 text-xs mt-2 font-medium">
                     ⚠ Wajah tidak terdeteksi. Posisikan wajah di dalam bingkai.
+                  </p>
+                )}
+
+                {faceDetected && facePartiallyVisible && (
+                  <p className="text-amber-300 text-xs mt-2 font-medium">
+                    ⚠ Wajah terpotong — mundurlah sedikit agar seluruh wajah terbaca.
                   </p>
                 )}
               </div>
@@ -507,6 +638,7 @@ export default function FaceEnrollment() {
                   capturedFrames.current = [];
                   poseCapturedRef.current = new Set();
                   currentPoseIdxRef.current = 0;
+                  poseHoldStartRef.current = 0;
                   setCurrentPoseIdx(0);
                   setCapturedPoses(new Set());
                 }}

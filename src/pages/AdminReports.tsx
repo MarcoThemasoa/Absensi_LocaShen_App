@@ -6,12 +6,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { cachedQuery } from '../lib/supabaseCache';
-import { Download, Search, Maximize2, ChevronLeft, ChevronRight, Activity, Clock, MapPin, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Download, Search, Maximize2, ChevronLeft, ChevronRight, Activity, Clock, MapPin, ShieldAlert, ShieldCheck, Smartphone, Bell } from 'lucide-react';
 import { FACE_MATCH_THRESHOLD } from '../lib/faceLandmarker';
 import { format, parseISO } from 'date-fns';
 import { indonesianLocale } from '../lib/date-locale';
 import { Combobox } from '../components/ui/combobox';
 import { AttendanceRecord } from '../types';
+import { useSearchParams } from 'react-router-dom';
 
 /** Format time string → HH:mm (24 jam, leading zero) */
 function fmtTime(t: string | null | undefined): string {
@@ -72,6 +73,26 @@ function StatusBadge({ status, isForgotClockOut, variant = 'table' }: {
   );
 }
 
+/** Badge absen mencurigakan — lapisan verifikasi (wajah/liveness/device). */
+function SuspiciousBadge({ isSuspicious, variant = 'table' }: {
+  isSuspicious?: boolean;
+  variant?: 'compact' | 'dialog' | 'table';
+}) {
+  if (!isSuspicious) return null;
+  const cls = variant === 'compact'
+    ? 'rounded-md px-2 py-0.5 text-[10px]'
+    : variant === 'dialog'
+    ? 'rounded-lg px-2.5 py-1 text-xs'
+    : 'rounded-xl px-3 py-1.5 text-xs shadow-sm tracking-wider';
+  const label = variant === 'compact' ? 'Mencurigakan' : 'Mencurigakan';
+  return (
+    <span className={`inline-flex items-center gap-1 ${cls} font-bold uppercase bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/30`}>
+      <ShieldAlert size={variant === 'compact' ? 10 : 12} />
+      {label}
+    </span>
+  );
+}
+
 /** Pagination controls — reusable untuk reports & logs */
 function PaginationControls({ currentPage, totalPages, totalItems, itemsPerPage, onPageChange, size = 'md' }: {
   currentPage: number;
@@ -112,6 +133,7 @@ function PaginationControls({ currentPage, totalPages, totalItems, itemsPerPage,
 interface AdminActivityLog {
   id: string; adminId: string; adminName: string; action: string;
   timestamp: string; location: { lat: number; lng: number }; locationName: string;
+  source: 'admin' | 'device' | 'late';
 }
 
 export default function AdminReports() {
@@ -122,6 +144,7 @@ export default function AdminReports() {
   const [searchQuery, setSearchQuery] = useState('');
   const [timeFilter, setTimeFilter] = useState<'1hari' | '7hari' | '1bulan' | 'semua'>('semua');
   const [locationFilter, setLocationFilter] = useState<string>('');
+  const [searchParams] = useSearchParams();
   
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -133,10 +156,19 @@ export default function AdminReports() {
   const [exportStartDate, setExportStartDate] = useState<string>('');
   const [exportEndDate, setExportEndDate] = useState<string>('');
 
-  // Log Aktivitas State
-  const [logTimeFilter, setLogTimeFilter] = useState<'1hari' | '7hari' | '1bulan' | 'semua'>('semua');
+  // Log Aktivitas State — default hari ini (sesuai permintaan admin)
+  const [logTimeFilter, setLogTimeFilter] = useState<'1hari' | '7hari' | '1bulan' | 'semua'>('1hari');
   const [logCurrentPage, setLogCurrentPage] = useState(1);
+  const [isLogDialogOpen, setIsLogDialogOpen] = useState(false);
   const logsPerPage = 15;
+
+  // Auto-buka dialog Log Aktivitas kalau URL ada ?log=1
+  // (dipakai tombol "Lihat Semua Pesan" di Dashboard admin)
+  useEffect(() => {
+    if (searchParams.get('log') === '1') {
+      setIsLogDialogOpen(true);
+    }
+  }, [searchParams]);
 
   /** Hitung tanggal awal berdasarkan filter */
   function getStartDate(filter: '1hari' | '7hari' | '1bulan' | 'semua'): string | null {
@@ -156,11 +188,11 @@ export default function AdminReports() {
       const attCacheKey = `reports:attendance:${timeFilter}`;
       const logCacheKey = `reports:logs:${logTimeFilter}`;
 
-      const [attResult, userResult, logResult] = await Promise.all([
+      const [attResult, userResult, logResult, notifResult] = await Promise.all([
         cachedQuery<any[]>(attCacheKey, () => {
           let query = supabase
             .from('attendance_records')
-            .select('id, user_id, date, time_in, time_out, status, location_lat, location_lng, photo_url, is_forgot_clock_out, face_match_score')
+            .select('id, user_id, date, time_in, time_out, status, location_lat, location_lng, photo_url, is_forgot_clock_out, face_match_score, liveness_passed, is_suspicious')
             .order('date', { ascending: false })
             .limit(200);
           if (startDate) query = query.gte('date', startDate);
@@ -178,6 +210,16 @@ export default function AdminReports() {
           if (logStartDate) query = query.gte('action_timestamp', logStartDate);
           return query;
         }),
+        // Notifikasi admin (device change / absen telat) — digabung ke timeline log
+        cachedQuery<any[]>(`reports:notifs:${logTimeFilter}`, () => {
+          let query = supabase
+            .from('admin_notifications')
+            .select('id, type, user_id, message, created_at')
+            .order('created_at', { ascending: false })
+            .limit(200);
+          if (logStartDate) query = query.gte('created_at', logStartDate);
+          return query;
+        }, 30_000),
       ]);
 
       const userData = userResult.data || [];
@@ -194,6 +236,8 @@ export default function AdminReports() {
             photoUrl: a.photo_url || undefined,
             isForgotClockOut: a.is_forgot_clock_out || false,
             faceMatchScore: a.face_match_score ?? null,
+            livenessPassed: a.liveness_passed ?? null,
+            isSuspicious: a.is_suspicious || false,
           };
         }));
       } else {
@@ -209,10 +253,30 @@ export default function AdminReports() {
             action: l.action, timestamp: l.action_timestamp,
             location: { lat: l.location_lat || 0, lng: l.location_lng || 0 },
             locationName: l.location_name || '',
+            source: 'admin' as const,
           };
         }));
       } else {
         setAdminLogs([]);
+      }
+
+      // Gabung notifikasi admin (device change / absen telat) ke timeline log,
+      // lalu urutkan dari yang terbaru.
+      const notifData = notifResult.data || [];
+      const notifLogs: AdminActivityLog[] = notifData.map((n: any) => {
+        const emp = userMap.get(n.user_id);
+        return {
+          id: n.id, adminId: '', adminName: emp?.name || '',
+          action: n.message, timestamp: n.created_at,
+          location: { lat: 0, lng: 0 }, locationName: '',
+          source: n.type === 'device_change' ? 'device' as const : 'late' as const,
+        };
+      });
+
+      if (notifLogs.length > 0) {
+        setAdminLogs(prev => [...prev, ...notifLogs].sort(
+          (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        ));
       }
 
       setLoading(false);
@@ -257,7 +321,8 @@ export default function AdminReports() {
       action: 'Mengekspor data laporan absensi',
       timestamp: new Date().toISOString(),
       location: { lat: -6.200000, lng: 106.816666 },
-      locationName: 'Lokasi Perangkat Admin'
+      locationName: 'Lokasi Perangkat Admin',
+      source: 'admin'
     }, ...prev]);
 
     const reportsToExport = reports.filter(report => {
@@ -271,13 +336,14 @@ export default function AdminReports() {
       return true;
     });
 
-    const headers = ['ID', 'Tanggal', 'Nama', 'Jam Masuk', 'Jam Keluar', 'Status', 'Lokasi', 'Kecocokan Wajah'];
+    const headers = ['ID', 'Tanggal', 'Nama', 'Jam Masuk', 'Jam Keluar', 'Status', 'Lokasi', 'Kecocokan Wajah', 'Verifikasi'];
     const rows = reportsToExport.map(r => {
       const locName = locations.find(l => l.id === r.locationId)?.name || '';
       const faceStr = (r.faceMatchScore !== null && r.faceMatchScore !== undefined)
         ? (r.faceMatchScore < FACE_MATCH_THRESHOLD ? 'Cocok' : `Mencurigakan (${r.faceMatchScore.toFixed(3)})`)
         : '-';
-      return `${r.id},${r.date},"${r.userName}",${r.timeIn},${r.timeOut || ''},${r.status},"${locName}","${faceStr}"`;
+      const verifyStr = r.isSuspicious ? 'Mencurigakan' : 'Normal';
+      return `${r.id},${r.date},"${r.userName}",${r.timeIn},${r.timeOut || ''},${r.status},"${locName}","${faceStr}","${verifyStr}"`;
     });
     const dateStr = format(new Date(), 'dd-MMM-yyyy', { locale: indonesianLocale });
     const filterName = (exportStartDate && exportEndDate) ? `${exportStartDate}_to_${exportEndDate}` : 'custom';
@@ -294,7 +360,7 @@ export default function AdminReports() {
         </div>
         
         <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-          <Dialog>
+          <Dialog open={isLogDialogOpen} onOpenChange={setIsLogDialogOpen}>
             <DialogTrigger>
               <Button variant="outline" className="rounded-xl h-11 px-6 shadow-sm border-gray-200 hover:bg-gray-50 text-gray-700 font-medium w-full md:w-auto">
                 <Activity size={20} className="mr-2 text-[#113129]" /> Log Aktivitas
@@ -315,7 +381,25 @@ export default function AdminReports() {
               <div className="overflow-y-auto flex-1 p-4 space-y-3">
                 {paginatedLogs.length > 0 ? paginatedLogs.map((log) => (
                   <div key={log.id} className="rounded-2xl border border-gray-100 bg-white shadow-sm p-4 hover:shadow-md transition-shadow">
-                    <h3 className="font-bold text-gray-900 text-sm mb-2 leading-snug line-clamp-2">{log.action}</h3>
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <h3 className="font-bold text-gray-900 text-sm leading-snug line-clamp-2">{log.action}</h3>
+                      {log.source !== 'admin' && (
+                        <span className={`shrink-0 inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ring-1 ring-inset ${
+                          log.source === 'device'
+                            ? 'bg-red-50 text-red-700 ring-red-600/20'
+                            : 'bg-yellow-50 text-yellow-700 ring-yellow-600/20'
+                        }`}>
+                          {log.source === 'device'
+                            ? <><Smartphone size={10} /> Device</>
+                            : <><Bell size={10} /> Telat</>}
+                        </span>
+                      )}
+                    </div>
+                    {log.adminName && (
+                      <p className="text-xs text-gray-500 font-medium mb-1.5">
+                        oleh {log.adminName}
+                      </p>
+                    )}
                     <div className="flex items-center gap-3 text-xs text-gray-500">
                       <span className="flex items-center gap-1">
                         <Clock size={12} className="text-[#113129] shrink-0" />
@@ -473,7 +557,10 @@ export default function AdminReports() {
                           <MapPin size={14} className="shrink-0" />
                           <span className="truncate max-w-[15ch]">{locationName}</span>
                         </div>
-                        <StatusBadge status={report.status} isForgotClockOut={report.isForgotClockOut} variant="compact" />
+                        <div className="flex items-center gap-1.5">
+                          <StatusBadge status={report.status} isForgotClockOut={report.isForgotClockOut} variant="compact" />
+                          <SuspiciousBadge isSuspicious={report.isSuspicious} variant="compact" />
+                        </div>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-gray-500">
                         <Clock size={13} className="shrink-0 text-[#113129]" />
@@ -537,6 +624,28 @@ export default function AdminReports() {
                             </div>
                           </div>
                         )}
+                        {report.livenessPassed !== null && report.livenessPassed !== undefined && (
+                          <div className="col-span-2">
+                            <p className="text-gray-400 font-medium text-xs">Verifikasi Liveness</p>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              {report.livenessPassed ? (
+                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200">
+                                  <ShieldCheck size={12} /> Lolos
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-200">
+                                  <ShieldAlert size={12} /> Gagal
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        {report.isSuspicious && (
+                          <div className="col-span-2">
+                            <p className="text-gray-400 font-medium text-xs">Keputusan Sistem</p>
+                            <SuspiciousBadge isSuspicious variant="dialog" />
+                          </div>
+                        )}
                       </div>
                       {report.photoUrl && (
                         <div className="w-full mt-1 rounded-2xl overflow-hidden shadow-md">
@@ -565,6 +674,7 @@ export default function AdminReports() {
                   <TableHead className="font-bold text-gray-900 text-center">Jam Keluar</TableHead>
                   <TableHead className="font-bold text-gray-900 text-center">Status</TableHead>
                   <TableHead className="font-bold text-gray-900 text-center">Wajah</TableHead>
+                  <TableHead className="font-bold text-gray-900 text-center">Verifikasi</TableHead>
                   <TableHead className="font-bold text-gray-900 text-center">Bukti Foto</TableHead>
                 </TableRow>
               </TableHeader>
@@ -600,6 +710,10 @@ export default function AdminReports() {
                         <span className="text-gray-400 text-xs">—</span>
                       )}
                     </TableCell>
+                    <TableCell className="text-center">
+                      <SuspiciousBadge isSuspicious={report.isSuspicious} variant="table" />
+                      {!report.isSuspicious && <span className="text-gray-400 text-xs">Normal</span>}
+                    </TableCell>
                     <TableCell className="text-center flex justify-center items-center py-3">
                       {report.photoUrl ? (
                         <Dialog>
@@ -625,7 +739,7 @@ export default function AdminReports() {
                   </TableRow>
                 )) : (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-32 text-center text-gray-500 font-medium">
+                    <TableCell colSpan={9} className="h-32 text-center text-gray-500 font-medium">
                       Tidak ada laporan yang sesuai dengan filter.
                     </TableCell>
                   </TableRow>

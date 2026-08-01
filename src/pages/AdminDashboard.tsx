@@ -1,14 +1,15 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { CheckCircle, AlertCircle, Calendar } from 'lucide-react';
-import { format } from 'date-fns';
+import { CheckCircle, AlertCircle, Calendar, Bell, Smartphone, Clock, ChevronRight } from 'lucide-react';
+import { format, parseISO } from 'date-fns';
 import { indonesianLocale } from '../lib/date-locale';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { cachedQuery } from '../lib/supabaseCache';
 import { Combobox } from '../components/ui/combobox';
+import { Button } from '../components/ui/button';
 
 const DashboardMap = lazy(() => import('../components/DashboardMap'));
 
@@ -17,6 +18,25 @@ interface DailyStat {
   hadir: number;
   telat: number;
   alpha: number;
+}
+
+interface AdminNotification {
+  id: string;
+  type: 'device_change' | 'late_checkin';
+  message: string;
+  createdAt: string;
+}
+
+/** Ikon per tipe notifikasi */
+function NotificationIcon({ type }: { type: AdminNotification['type'] }) {
+  return type === 'device_change'
+    ? <Smartphone className="text-red-500 w-5 h-5 shrink-0" />
+    : <Clock className="text-yellow-500 w-5 h-5 shrink-0" />;
+}
+
+/** Potong pesan notifikasi biar tidak terlalu panjang (mobile/desktop) */
+function truncateMessage(msg: string, max = 72): string {
+  return msg.length > max ? msg.slice(0, max).trimEnd() + '…' : msg;
 }
 
 /** Skeleton placeholder for chart area */
@@ -61,12 +81,41 @@ export default function AdminDashboard() {
   const [chartRange, setChartRange] = useState<'7hari' | '30hari'>('7hari');
   const [loading, setLoading] = useState(true);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [notifications, setNotifications] = useState<AdminNotification[]>([]);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // ── Fetch notifikasi admin: 48 jam terakhir (tanpa cache supaya selalu segar) ──
+  const fetchNotifications = useCallback(async () => {
+    const since = new Date(Date.now() - 48 * 3600_000).toISOString();
+    const { data } = await supabase
+      .from('admin_notifications')
+      .select('id, type, message, created_at')
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(20);
+    setNotifications(
+      (data || []).map((n: any) => ({
+        id: n.id,
+        type: n.type,
+        message: n.message,
+        createdAt: n.created_at,
+      }))
+    );
+  }, []);
+
+  useEffect(() => {
+    fetchNotifications();
+    // Polling ringan — notifikasi baru (device change / absen telat) muncul
+    // otomatis di dashboard tanpa perlu reload manual.
+    const interval = setInterval(fetchNotifications, 30_000);
+    return () => clearInterval(interval);
+  }, [fetchNotifications]);
 
   const today = format(new Date(), 'yyyy-MM-dd');
 
@@ -212,6 +261,67 @@ export default function AdminDashboard() {
           />
         </div>
       </div>
+
+      {/* ── NOTIFIKASI / PESAN TERBARU — 48 jam terakhir ── */}
+      <Card className="rounded-3xl border border-white/60 bg-white/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+        <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-4 pb-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-yellow-400/10 rounded-xl">
+              <Bell className="text-yellow-500 w-6 h-6" />
+            </div>
+            <div>
+              <CardTitle className="text-sm font-bold text-gray-500 uppercase tracking-wider">
+                Pesan Terbaru
+              </CardTitle>
+              <p className="text-xs text-gray-400 font-medium mt-0.5">
+                Notifikasi 48 jam terakhir
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-xl border-gray-200 text-gray-700 hover:bg-gray-50 shrink-0 w-full md:w-auto"
+            onClick={() => navigate('/admin/laporan?log=1')}
+          >
+            Lihat Semua Pesan <ChevronRight size={16} className="ml-1" />
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {notifications.length === 0 ? (
+            <p className="text-sm text-gray-400 font-medium py-2">
+              Tidak ada notifikasi dalam 48 jam terakhir.
+            </p>
+          ) : (
+            <div className="divide-y divide-gray-100/70 max-h-72 overflow-y-auto pr-1">
+              {notifications.map((n) => (
+                <div key={n.id} className="flex items-start gap-3 py-2.5">
+                  <NotificationIcon type={n.type} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-gray-800 leading-snug">
+                      {truncateMessage(n.message)}
+                    </p>
+                    <p className="text-xs text-gray-400 font-medium mt-0.5">
+                      {format(parseISO(n.createdAt), 'dd MMM yy HH:mm', {
+                        locale: indonesianLocale,
+                      })}
+                    </p>
+                  </div>
+                  <span
+                    className={`shrink-0 text-[10px] font-bold uppercase rounded-md px-2 py-0.5 ring-1 ring-inset ${
+                      n.type === 'device_change'
+                        ? 'bg-red-50 text-red-700 ring-red-600/20'
+                        : 'bg-yellow-50 text-yellow-700 ring-yellow-600/20'
+                    }`}
+                  >
+                    {n.type === 'device_change' ? 'Device' : 'Telat'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* ── STAT CARDS — skeleton placeholder while loading, real cards when ready ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">

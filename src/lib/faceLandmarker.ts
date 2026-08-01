@@ -26,6 +26,36 @@ export type ModelStatus =
   | { state: 'ready' }
   | { state: 'error'; message: string };
 
+// ── Deteksi perangkat low-end ──
+// CATATAN: MediaPipe Face Landmarker hanya punya SATU model resmi
+// (face_landmarker.task, sudah MobileNetV2-based + input 256×256 → cukup
+// ringan). Tidak ada varian "lite" untuk face landmarker (beda dengan
+// pose/hand landmarker). Jadi lever performa untuk HP low-end bukan ganti
+// model, tapi: (1) kurangi frekuensi deteksi (throttle), (2) turunkan
+// resolusi kamera. Fungsi ini dipakai untuk menyesuaikan throttle tsb.
+//
+// Heuristik: navigator.deviceMemory (RAM, hanya Chromium) + hardwareConcurrency.
+const LITE_CORE_MAX = 4;    // ≤4 core CPU
+const LITE_MEM_GB_MAX = 4;  // ≤4GB RAM
+
+/** Deteksi apakah perangkat low-end → perlu deteksi lebih hemat. */
+export function isLowEndDevice(): boolean {
+  try {
+    const memory = (navigator as unknown as { deviceMemory?: number }).deviceMemory;
+    if (typeof memory === 'number' && memory > 0 && memory <= LITE_MEM_GB_MAX) return true;
+    const cores = navigator.hardwareConcurrency ?? 0;
+    if (cores > 0 && cores <= LITE_CORE_MAX) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/** Interval deteksi wajah (ms) — lebih jarang di HP low-end. */
+export function getDetectionIntervalMs(defaultMs: number): number {
+  return isLowEndDevice() ? Math.round(defaultMs * 1.5) : defaultMs;
+}
+
 /** Dapatkan status model saat ini (tanpa memicu loading) */
 export function getModelStatus(): ModelStatus {
   if (isLoaded) return { state: 'ready' };
@@ -219,7 +249,45 @@ export function averageDescriptors(descriptors: number[][]): number[] | null {
  *   - > 0.8   : pasti beda orang
  * Nilai bisa disesuaikan setelah uji coba lapangan.
  */
-export const FACE_MATCH_THRESHOLD = 0.55;
+export const FACE_MATCH_THRESHOLD = 0.15;
+
+/**
+ * Match descriptor dengan HANYA komponen x,y (buang z).
+ *
+ * Masalah: z dari MediaPipe adalah estimasi depth yang nilainya hampir sama
+ * untuk semua orang dengan pose menghadap kamera. Ini bikin 478 dimensi
+ * (dari total 1434) nyaris identik antar individu → skor semua orang mirip.
+ *
+ * Dengan hanya pakai x,y (956 dimensi), diskriminasi antar wajah jauh lebih baik.
+ * Range skor: 0 (identik) – ~2 (berlawanan).
+ * Keputusan "cocok/tidak" memakai FACE_MATCH_THRESHOLD (0.15) yang sama.
+ */
+export function matchDescriptorXY(
+  desc1: number[],
+  desc2: number[]
+): number {
+  if (desc1.length !== desc2.length || desc1.length === 0) return Infinity;
+
+  const STEP = 3; // data format: [x, y, z, x, y, z, ...]
+
+  // Ekstrak x,y aja dari kedua descriptor
+  const a: number[] = [];
+  const b: number[] = [];
+  for (let i = 0; i < desc1.length; i += STEP) {
+    a.push(desc1[i], desc1[i + 1]);
+    b.push(desc2[i], desc2[i + 1]);
+  }
+
+  l2Normalize(a);
+  l2Normalize(b);
+
+  let sumSq = 0;
+  for (let i = 0; i < a.length; i++) {
+    const diff = a[i] - b[i];
+    sumSq += diff * diff;
+  }
+  return Math.sqrt(sumSq);
+}
 
 // ═══════════════════════════════════════════════════
 // Head Pose Estimation — anti-spoofing & guided enrollment
@@ -297,14 +365,22 @@ export function estimateHeadPose(
 
 /**
  * Deteksi apakah user sedang menutup mata (blink).
- * Threshold diturunkan ke 0.3 agar lebih responsif.
+ * Threshold default 0.3 (enrollment), bisa diperketat via argumen
+ * (misal 0.45 untuk liveness challenge biar tidak mudah false-positive).
  */
-export function isBlinking(blendshapes: { categoryName: string; score: number }[]): boolean {
+export function isBlinking(
+  blendshapes: { categoryName: string; score: number }[],
+  threshold: number = 0.30
+): boolean {
   const leftBlink = blendshapes.find(s => s.categoryName === 'eyeBlinkLeft')?.score ?? 0;
   const rightBlink = blendshapes.find(s => s.categoryName === 'eyeBlinkRight')?.score ?? 0;
-  return leftBlink > 0.30 && rightBlink > 0.30;
+  return leftBlink > threshold && rightBlink > threshold;
 }
 
 // ── Pose detection thresholds (untuk FaceEnrollment) ──
-export const POSE_YAW_THRESHOLD = 0.10;
-export const POSE_PITCH_THRESHOLD = 0.10;
+// Dinaikkan dari 0.10/0.10 karena threshold sekecil itu membuat pose langsung
+// "tertangkap" padahal wajah hampir tidak bergerak (atau cuma noise 1 frame).
+// Sekarang butuh gerakan yang JELAS supaya wajah sempat terbaca penuh saat
+// menoleh/mendongak (bukan kedutan sekejap).
+export const POSE_YAW_THRESHOLD = 0.30;
+export const POSE_PITCH_THRESHOLD = 0.25;

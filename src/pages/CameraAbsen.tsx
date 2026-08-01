@@ -4,8 +4,9 @@ import Webcam from 'react-webcam';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
-import { ArrowLeft, CheckCircle2, ScanFace, MapPinned, XCircle, Loader2, Clock, AlertCircle, ShieldCheck } from 'lucide-react';
-import { getFaceLandmarker, isFaceLandmarkerReady, extractDescriptor, matchDescriptor, FACE_MATCH_THRESHOLD } from '../lib/faceLandmarker';
+import { ArrowLeft, CheckCircle2, Scan, MapPinned, XCircle, Loader2, Clock, AlertCircle, BadgeCheck } from 'lucide-react';
+import { getFaceLandmarker, isFaceLandmarkerReady, extractDescriptor, matchDescriptorXY, estimateHeadPose, FACE_MATCH_THRESHOLD, getDetectionIntervalMs, isLowEndDevice } from '../lib/faceLandmarker';
+import type { HeadPose } from '../lib/faceLandmarker';
 import type { FaceLandmarker } from '@mediapipe/tasks-vision';
 import { useAuth } from '../context/AuthContext';
 import { getCachedPosition } from '../lib/locationCache';
@@ -15,6 +16,9 @@ import { invalidateCache } from '../lib/supabaseCache';
 import { fmtHHmm } from '../lib/utils';
 import { toast } from 'sonner';
 import { loadFaceDescriptor } from '../lib/faceMatcher';
+import { generateChallenges, CHALLENGE_COUNT, CHALLENGE_TIMEOUT_MS, updateBlinkCycle, createBlinkCycleState } from '../lib/livenessChallenge';
+import type { ChallengeDef, BlinkCycleState } from '../lib/livenessChallenge';
+import { registerDevice } from '../lib/deviceBinding';
 
 export default function CameraAbsen() {
   const { user, todayAttendance, locations, recordCheckIn, recordCheckOut } = useAuth();
@@ -34,18 +38,47 @@ export default function CameraAbsen() {
   const [isLate, setIsLate] = useState(false);
   const [attendanceTime, setAttendanceTime] = useState<string>('');
   
+  const [cameraReady, setCameraReady] = useState(false);
   const [faceLandmarker, setFaceLandmarker] = useState<FaceLandmarker | null>(null);
   const [isModelLoading, setIsModelLoading] = useState(!isFaceLandmarkerReady());
   const [modelLoadError, setModelLoadError] = useState<string | null>(null);
   const requestRef = useRef<number | null>(null);
   const lastVideoTime = useRef<number>(-1);
-  const [blinkDetected, setBlinkDetected] = useState(false);
+  // ── Liveness challenge (anti-spoofing) ──
+  const [challenges, setChallenges] = useState<ChallengeDef[] | null>(null);
+  const [currentChallengeIdx, setCurrentChallengeIdx] = useState(0);
+  const [livenessPassed, setLivenessPassed] = useState<boolean | null>(null);
+  const [livenessTimedOut, setLivenessTimedOut] = useState(false);
+  // refs agar bisa dibaca dari dalam RAF loop tanpa stale closure
+  const challengesRef = useRef<ChallengeDef[] | null>(null);
+  const currentChallengeIdxRef = useRef(0);
+  const challengeStartTimeRef = useRef(0);
+  const poseHoldStartRef = useRef(0); // kapan pose mulai ditahan (perf.now)
+  const blinkCycleRef = useRef<BlinkCycleState>(createBlinkCycleState()); // state siklus kedip
+  const livenessDoneRef = useRef(false);
   const [showForgotConfirm, setShowForgotConfirm] = useState(false);
   const [forgotConfirmed, setForgotConfirmed] = useState(false);
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastDetectionTime = useRef<number>(0);
-  const DETECTION_INTERVAL = 150; // ms — throttle biar nggak tiap frame
+  // Throttle deteksi — lebih jarang di HP low-end biar tidak kewalahan
+  const DETECTION_INTERVAL = getDetectionIntervalMs(150); // ms
   const liveDescriptorRef = useRef<number[] | null>(null);
+  const liveDescBuffer = useRef<number[][]>([]); // buffer N frame terakhir untuk averaging
+  const MAX_BUFFER = 10;
+  // ── EMA smoothing untuk pose ──
+  // MediaPipe memberi yaw/pitch per-frame yang noisy. Kalau threshold dipakai
+  // langsung ke 1 frame, kedutan/goyangan kecil bisa "memenuhi" challenge lalu
+  // langsung gagal di frame berikutnya (maju-mundur). Dengan EMA (rata-rata
+  // eksponensial), pose jadi halus → challenge baru dianggap sah setelah pose
+  // BENAR-BENAR dipertahankan beberapa frame, bukan 1 frame noise.
+  const smoothedPoseRef = useRef<HeadPose>({ yaw: 0, pitch: 0 });
+  const POSE_EMA_ALPHA = 0.3; // 0 = lambat/lembut, 1 = instan. 0.3 ≈ responsif tapi halus
+  // Ambang "wajah cukup frontal" — hanya frame FRONTAL yang masuk buffer descriptor.
+  // Kenapa: buffer dipakai buat face-match setelah liveness. Kalau frame menoleh
+  // (yaw besar) ikut ter-average, descriptor jadi campuran posisi → skor
+  // ketidakmiripan naik drastis padahal wajah sama.
+  const FRONTAL_YAW_MAX = 0.35;   // lebih longgar dari threshold challenge (0.75)
+  const FRONTAL_PITCH_MAX = 0.30;  // supaya tetap ada frame yang lolos saat menoleh balik
   const [faceMatchScore, setFaceMatchScore] = useState<number | null>(null);
   const [faceMatchPass, setFaceMatchPass] = useState<boolean | null>(null);
   const [isFaceMatching, setIsFaceMatching] = useState(false);
@@ -71,7 +104,7 @@ export default function CameraAbsen() {
 
     // Throttle deteksi biar tidak tiap frame
     const now = performance.now();
-    if (now - lastDetectionTime.current < 200) {
+    if (now - lastDetectionTime.current < getDetectionIntervalMs(200)) {
       requestRef.current = requestAnimationFrame(faceCheckLoop);
       return;
     }
@@ -92,13 +125,23 @@ export default function CameraAbsen() {
       if (hasFace && user?.id) {
         const desc = extractDescriptor(results.faceLandmarks[0]);
         if (desc && storedDescriptorRef.current) {
-          // Update skor setiap beberapa frame (biar halus)
-          faceCheckFrameRef.current++;
-          if (faceCheckFrameRef.current % 3 === 0) { // setiap ~600ms
-            const score = matchDescriptor(desc, storedDescriptorRef.current);
-            setFacePreCheckScore(score);
-            setFacePreCheckPass(score < FACE_MATCH_THRESHOLD);
-            setFacePreChecking(false);
+          // ── HANYA hitung skor kalau wajah FRONTAL ──
+          // Kalau user sedang menoleh/mendongak (misal saat liveness nanti),
+          // deskriptor menyimpang dari wajah frontal tersimpan → skor naik
+          // padahal wajah sama. Jadi lewati perhitungan saat pose jauh dari frontal.
+          const headPose = estimateHeadPose(results.faceLandmarks[0]);
+          const isFrontal = Math.abs(headPose.yaw) <= FRONTAL_YAW_MAX
+            && Math.abs(headPose.pitch) <= FRONTAL_PITCH_MAX;
+
+          if (isFrontal) {
+            // Update skor setiap beberapa frame (biar halus)
+            faceCheckFrameRef.current++;
+            if (faceCheckFrameRef.current % 3 === 0) { // setiap ~600ms
+              const score = matchDescriptorXY(desc, storedDescriptorRef.current);
+              setFacePreCheckScore(score);
+              setFacePreCheckPass(score < FACE_MATCH_THRESHOLD);
+              setFacePreChecking(false);
+            }
           }
         } else if (desc && !storedDescriptorRef.current) {
           // Belum ada stored — coba load sekali
@@ -107,7 +150,7 @@ export default function CameraAbsen() {
             .then((stored) => {
               if (stored) {
                 storedDescriptorRef.current = stored;
-                const score = matchDescriptor(desc, stored);
+                const score = matchDescriptorXY(desc, stored);
                 setFacePreCheckScore(score);
                 setFacePreCheckPass(score < FACE_MATCH_THRESHOLD);
               } else {
@@ -147,7 +190,7 @@ export default function CameraAbsen() {
     }
     return () => {
       if (requestRef.current !== null && step !== 'liveness') {
-        // Jangan cancel kalau mau pindah ke liveness (detectBlink akan pakai RAF sendiri)
+        // Jangan cancel kalau mau pindah ke liveness (loop liveness pakai RAF sendiri)
         cancelAnimationFrame(requestRef.current);
         requestRef.current = null;
       }
@@ -230,91 +273,212 @@ export default function CameraAbsen() {
     return () => clearTimeout(timeoutId);
   }, []);
 
-  const detectBlink = useCallback(async () => {
-    if (step !== 'liveness' || !faceLandmarker || !webcamRef.current?.video || blinkDetected) return;
+  /**
+   * Loop liveness: jalankan challenge acak berurutan.
+   * Setiap pose harus diselesaikan dalam CHALLENGE_TIMEOUT_MS.
+   * Kalau semua challenge selesai → liveness PASSED.
+   * Kalau ada yang timeout → liveness GAGAL (tetap bisa lanjut, tapi ditandai).
+   */
+  const detectLiveness = useCallback(async () => {
+    if (step !== 'liveness' || !faceLandmarker || !webcamRef.current?.video || livenessDoneRef.current) return;
 
     // Throttle: skip deteksi kalo belum waktunya
     const now = performance.now();
     if (now - lastDetectionTime.current < DETECTION_INTERVAL) {
-      requestRef.current = requestAnimationFrame(detectBlink);
+      requestRef.current = requestAnimationFrame(detectLiveness);
       return;
     }
     lastDetectionTime.current = now;
 
     const video = webcamRef.current.video;
-    
+
     // Ensure video is ready
     if (video.readyState >= 2 && video.videoWidth > 0) {
       if (video.currentTime !== lastVideoTime.current) {
         lastVideoTime.current = video.currentTime;
-        
-        try {
-          const results = faceLandmarker.detectForVideo(video, performance.now());
-          if (results.faceBlendshapes && results.faceBlendshapes.length > 0) {
-            const blendshapes = results.faceBlendshapes[0].categories;
-            const eyeBlinkLeft = blendshapes.find(shape => shape.categoryName === 'eyeBlinkLeft')?.score || 0;
-            const eyeBlinkRight = blendshapes.find(shape => shape.categoryName === 'eyeBlinkRight')?.score || 0;
-            
-            // If both eyes are blinked (threshold > 0.35)
-            if (eyeBlinkLeft > 0.35 && eyeBlinkRight > 0.35) {
-               setBlinkDetected(true);
-               const imageSrc = webcamRef.current.getScreenshot();
-               if (imageSrc) setPhoto(imageSrc);
 
-               // Extract face descriptor for matching
-               if (results.faceLandmarks && results.faceLandmarks.length > 0) {
-                 liveDescriptorRef.current = extractDescriptor(results.faceLandmarks[0]);
+         try {
+           const results = faceLandmarker.detectForVideo(video, performance.now());
+
+           const chs = challengesRef.current;
+           const idx = currentChallengeIdxRef.current;
+           if (!chs || idx >= chs.length) {
+             // Semua challenge selesai → liveness sukses
+             finishLiveness(true);
+             return;
+           }
+
+           const current = chs[idx];
+
+           // ── Timeout per pose ──
+           if (now - challengeStartTimeRef.current > CHALLENGE_TIMEOUT_MS) {
+             console.warn(`[Liveness] Challenge "${current.label}" timeout — liveness dianggap gagal`);
+             setLivenessTimedOut(true);
+             finishLiveness(false);
+             return;
+           }
+
+           if (results.faceLandmarks && results.faceLandmarks.length > 0) {
+             const landmarks = results.faceLandmarks[0];
+             const blendshapes = results.faceBlendshapes?.[0]?.categories ?? [];
+             const headPose = estimateHeadPose(landmarks);
+
+             // ── EMA smoothing pose ──
+             // Mencegah 1 frame noise langsung memenuhi/menggagalkan challenge.
+             const smoothed = smoothedPoseRef.current;
+             smoothed.yaw   += POSE_EMA_ALPHA * (headPose.yaw - smoothed.yaw);
+             smoothed.pitch += POSE_EMA_ALPHA * (headPose.pitch - smoothed.pitch);
+             const pose: HeadPose = { yaw: smoothed.yaw, pitch: smoothed.pitch };
+
+             // ── Buffer descriptor: HANYA frame frontal ──
+             // Wajah yang sedang menoleh (yaw/pitch besar) tidak dimasukkan ke
+             // buffer averaging → skor face-match tetap stabil di wajah frontal.
+             if (Math.abs(pose.yaw) <= FRONTAL_YAW_MAX && Math.abs(pose.pitch) <= FRONTAL_PITCH_MAX) {
+               const desc = extractDescriptor(landmarks);
+               if (desc) {
+                 liveDescBuffer.current.push(desc);
+                 if (liveDescBuffer.current.length > MAX_BUFFER) {
+                   liveDescBuffer.current.shift(); // buang frame paling lama
+                 }
                }
+             }
 
-               // Start face matching in background
-               if (user?.id) {
-                 setIsFaceMatching(true);
-                 loadFaceDescriptor(user.id)
-                   .then((storedDesc) => {
-                     if (storedDesc && liveDescriptorRef.current) {
-                       const score = matchDescriptor(liveDescriptorRef.current, storedDesc);
-                       setFaceMatchScore(score);
-                       setFaceMatchPass(score < FACE_MATCH_THRESHOLD);
-                       if (score >= FACE_MATCH_THRESHOLD) {
-                         console.warn(`[FaceMatch] Wajah tidak cocok! Score: ${score.toFixed(4)} (threshold: ${FACE_MATCH_THRESHOLD})`);
-                       } else {
-                         console.log(`[FaceMatch] Wajah cocok. Score: ${score.toFixed(4)}`);
-                       }
-                     }
-                   })
-                   .catch((err) => {
-                     console.error('[FaceMatch] Gagal load descriptor:', err);
-                     // Jika tidak ada descriptor (belum enroll), abaikan saja
-                   })
-                   .finally(() => {
-                     setIsFaceMatching(false);
-                   });
+             // ── Kedip ditangani khusus: butuh SIKLUS PENUH (buka→tutup→buka) ──
+             // Supaya kedipan tidak sadar / noise 1 frame tidak langsung lolos.
+             let satisfied = false;
+             if (current.id === 'kedip') {
+               satisfied = updateBlinkCycle(blinkCycleRef.current, blendshapes, now);
+             } else {
+               satisfied = current.check(pose, blendshapes);
+             }
+
+             if (satisfied) {
+               // ── Syarat "tahan pose" — cegah kedutan/goyangan kecil langsung lolos ──
+               // (kedip holdMs=0 → langsung lanjut; pose lain harus ditahan)
+               if (current.holdMs === 0) {
+                 advanceChallenge();
+               } else if (poseHoldStartRef.current === 0) {
+                 // Mulai hitung durasi tahan
+                 poseHoldStartRef.current = now;
+               } else if (now - poseHoldStartRef.current >= current.holdMs) {
+                 advanceChallenge();
                }
-
-               // Small delay before moving to success
-               successTimeoutRef.current = setTimeout(() => setStep('success'), 500);
-               return; 
-            }
-          }
-        } catch (error) {
-          console.error(error);
-        }
+             } else {
+               // Pose tidak terpenuhi → reset hitungan tahan (biar harus mulai dari nol)
+               poseHoldStartRef.current = 0;
+             }
+           } else {
+             // Wajah hilang di tengah challenge → reset hitungan tahan
+             poseHoldStartRef.current = 0;
+           }
+         } catch (error) {
+           console.error(error);
+         }
       }
     }
-    
-    if (step === 'liveness' && !blinkDetected) {
-      requestRef.current = requestAnimationFrame(detectBlink);
+
+    if (step === 'liveness' && !livenessDoneRef.current) {
+      requestRef.current = requestAnimationFrame(detectLiveness);
     }
-  }, [step, faceLandmarker, blinkDetected]);
+  }, [step, faceLandmarker]);
+
+  /**
+   * Selesaikan liveness (sukses/gagal) → kunci descriptor + face match → success.
+   * Dipanggil sekali; flag livenessDoneRef mencegah eksekusi ganda.
+   */
+  const finishLiveness = useCallback((passed: boolean) => {
+    if (livenessDoneRef.current) return;
+    livenessDoneRef.current = true;
+    setLivenessPassed(passed);
+
+    const imageSrc = webcamRef.current?.getScreenshot();
+    if (imageSrc) setPhoto(imageSrc);
+
+    // ── Average buffer descriptor untuk matching yang stabil ──
+    const buf = liveDescBuffer.current;
+    if (buf.length > 0) {
+      const len = buf[0].length;
+      const avg = new Array<number>(len).fill(0);
+      for (const d of buf) {
+        for (let i = 0; i < len; i++) avg[i] += d[i];
+      }
+      for (let i = 0; i < len; i++) avg[i] /= buf.length;
+      liveDescriptorRef.current = avg;
+    }
+
+    // Start face matching in background — pake matchDescriptorXY (buang z)
+    if (user?.id) {
+      setIsFaceMatching(true);
+      loadFaceDescriptor(user.id)
+        .then((storedDesc) => {
+          if (storedDesc && liveDescriptorRef.current) {
+            const score = matchDescriptorXY(liveDescriptorRef.current, storedDesc);
+            setFaceMatchScore(score);
+            setFaceMatchPass(score < FACE_MATCH_THRESHOLD);
+            if (score >= FACE_MATCH_THRESHOLD) {
+              console.warn(`[FaceMatch] Wajah tidak cocok! Score: ${score.toFixed(4)} (threshold: ${FACE_MATCH_THRESHOLD})`);
+            } else {
+              console.log(`[FaceMatch] Wajah cocok. Score: ${score.toFixed(4)}`);
+            }
+          }
+        })
+        .catch((err) => {
+          console.error('[FaceMatch] Gagal load descriptor:', err);
+          // Jika tidak ada descriptor (belum enroll), abaikan saja
+        })
+        .finally(() => {
+          setIsFaceMatching(false);
+        });
+    }
+
+    // Small delay before moving to success
+    successTimeoutRef.current = setTimeout(() => setStep('success'), 500);
+  }, [user?.id]);
+
+  /**
+   * Maju ke challenge berikutnya. Kalau sudah di akhir → liveness sukses.
+   * Dipakai dari dalam detectLiveness (di-definisikan setelahnya —
+   * aman karena hanya dieksekusi saat RAF berjalan, bukan saat render).
+   */
+  const advanceChallenge = useCallback(() => {
+    const chs = challengesRef.current;
+    const nextIdx = currentChallengeIdxRef.current + 1;
+    currentChallengeIdxRef.current = nextIdx;
+    challengeStartTimeRef.current = performance.now();
+    poseHoldStartRef.current = 0;
+    blinkCycleRef.current = createBlinkCycleState(); // reset state kedip untuk challenge baru
+    // Reset pose EMA biar pose challenge sebelumnya tidak "terbawa" ke berikutnya
+    smoothedPoseRef.current = { yaw: 0, pitch: 0 };
+    setCurrentChallengeIdx(nextIdx);
+
+    if (chs && nextIdx >= chs.length) {
+      // Semua selesai → sukses
+      finishLiveness(true);
+    }
+  }, [finishLiveness]);
 
   useEffect(() => {
-    if (step === 'liveness' && !blinkDetected) {
-      requestRef.current = requestAnimationFrame(detectBlink);
+    if (step === 'liveness' && !livenessDoneRef.current) {
+      // Reset state challenge — generate urutan acak baru per sesi
+      const chs = generateChallenges(CHALLENGE_COUNT);
+      challengesRef.current = chs;
+      currentChallengeIdxRef.current = 0;
+      challengeStartTimeRef.current = performance.now();
+      poseHoldStartRef.current = 0;
+      blinkCycleRef.current = createBlinkCycleState();
+      smoothedPoseRef.current = { yaw: 0, pitch: 0 }; // reset pose EMA per sesi
+      livenessDoneRef.current = false;
+      liveDescBuffer.current = [];
+      setChallenges(chs);
+      setCurrentChallengeIdx(0);
+      setLivenessPassed(null);
+      setLivenessTimedOut(false);
+      requestRef.current = requestAnimationFrame(detectLiveness);
     }
     return () => {
       if (requestRef.current !== null) cancelAnimationFrame(requestRef.current);
     };
-  }, [step, detectBlink, blinkDetected]);
+  }, [step, detectLiveness]);
 
   const [userLat, setUserLat] = useState<number | null>(null);
   const [userLng, setUserLng] = useState<number | null>(null);
@@ -398,13 +562,11 @@ export default function CameraAbsen() {
       }
       setStep('liveness');
     }
+    // step 'liveness' TIDAK punya skip manual — harus selesaikan challenge
+    // (fallback lama yang langsung screenshot di sini dihapus karena
+    //  membuka celah bypass liveness → absen pakai video teman).
     else if (step === 'liveness') {
-      // Fallback manual click for demo if blink detection fails
-      const imageSrc = webcamRef.current?.getScreenshot();
-      if (imageSrc) {
-        setPhoto(imageSrc);
-      }
-      successTimeoutRef.current = setTimeout(() => setStep('success'), 1000); 
+      return;
     }
   };
 
@@ -420,9 +582,8 @@ export default function CameraAbsen() {
       recordCheckOut(timeString, isForgot ?? forgotConfirmed);
       toast.success('Absen keluar tercatat');
     } else {
-      const hourNum = now.getHours();
-      const minNum = now.getMinutes();
-      const isLateTime = hourNum > 8 || (hourNum === 8 && minNum > 0);
+      const totalMinNow = now.getHours() * 60 + now.getMinutes();
+      const isLateTime = totalMinNow > 495; // 08:15
       setIsLate(isLateTime);
       recordCheckIn(timeString);
       if (isLateTime) {
@@ -440,6 +601,26 @@ export default function CameraAbsen() {
   const doSupabaseSave = async (timeStr: string, isForgot: boolean) => {
     try {
       const today = new Date().toISOString().split('T')[0];
+
+      // ── Lapisan 2: soft device binding — deteksi ganti perangkat ──
+      let deviceChanged = false;
+      if (user?.id) {
+        try {
+          const reg = await registerDevice(user.id);
+          deviceChanged = reg.changedFromLast;
+          if (deviceChanged) {
+            console.warn('[DeviceBinding] Perangkat berbeda terdeteksi untuk user ini:', reg.deviceId);
+          }
+        } catch (err) {
+          // Gagal registrasi device jangan memblokir absen — hanya log
+          console.error('[DeviceBinding] Gagal registrasi device:', err);
+        }
+      }
+
+      // ── Lapisan 3: flag mencurigakan ──
+      // true jika: wajah tidak cocok ATAU liveness gagal ATAU ganti perangkat
+      const isSuspicious = !!deviceChanged || livenessPassed === false || faceMatchPass === false;
+
       if (isCheckOut) {
         const updateData: Record<string, any> = { time_out: timeStr };
         if (isForgot) {
@@ -448,6 +629,12 @@ export default function CameraAbsen() {
         // Simpan face_match_score kalau ada hasil matching-nya
         if (faceMatchScore !== null) {
           updateData.face_match_score = faceMatchScore;
+        }
+        if (livenessPassed !== null) {
+          updateData.liveness_passed = livenessPassed;
+        }
+        if (isSuspicious) {
+          updateData.is_suspicious = true;
         }
         console.log('[doSupabaseSave] Mencoba UPDATE attendance_records:', { userId: user?.id, date: today, updateData });
         const { data: updatedData, error } = await supabase
@@ -471,9 +658,8 @@ export default function CameraAbsen() {
         invalidateCache('dashboard:recent');
       } else if (user?.id) {
         const now = new Date();
-        const hourNum = now.getHours();
-        const minNum = now.getMinutes();
-        const isLateTime = hourNum > 8 || (hourNum === 8 && minNum > 0);
+        const totalMinNow = now.getHours() * 60 + now.getMinutes();
+        const isLateTime = totalMinNow > 495; // 08:15
         console.log('[doSupabaseSave] Mencoba INSERT attendance_records:', { userId: user.id, date: today, time_in: timeStr });
           const insertPayload: Record<string, any> = {
             user_id: user.id,
@@ -487,6 +673,14 @@ export default function CameraAbsen() {
           // Simpan face_match_score kalau ada hasil matching-nya
           if (faceMatchScore !== null) {
             insertPayload.face_match_score = faceMatchScore;
+          }
+          // Simpan hasil liveness (null = model tidak jalan → tidak dianggap gagal)
+          if (livenessPassed !== null) {
+            insertPayload.liveness_passed = livenessPassed;
+          }
+          // Flag mencurigakan (wajah tidak cocok / liveness gagal / ganti device)
+          if (isSuspicious) {
+            insertPayload.is_suspicious = true;
           }
           const { data: insertedData, error } = await supabase
             .from('attendance_records')
@@ -502,6 +696,20 @@ export default function CameraAbsen() {
         } else {
           console.log('[doSupabaseSave] Berhasil insert', insertedData.length, 'record');
           invalidateCache('dashboard:recent');
+
+          // ── Notifikasi ke admin: absen masuk di atas jam 12:00 ──
+          const [inHour] = timeStr.split(':').map(Number);
+          if (inHour >= 12) {
+            try {
+              await supabase.rpc('notify_admin', {
+                p_type: 'late_checkin',
+                p_user_id: user?.id,
+                p_message: `Absen masuk sangat telat pukul ${timeStr} (di atas jam 12:00)`,
+              });
+            } catch (notifErr) {
+              console.error('[doSupabaseSave] Gagal kirim notifikasi telat:', notifErr);
+            }
+          }
         }
       }
     } catch (e) {
@@ -512,8 +720,9 @@ export default function CameraAbsen() {
 
   const videoConstraints = {
     facingMode: "user",
-    width: { ideal: 320 },
-    height: { ideal: 240 },
+    // Resolusi lebih rendah di HP low-end → jauh lebih ringan buat MediaPipe
+    width: { ideal: isLowEndDevice() ? 480 : 640 },
+    height: { ideal: isLowEndDevice() ? 360 : 480 },
   };
 
   if (showOutOfHoursDialog) {
@@ -569,6 +778,7 @@ export default function CameraAbsen() {
             videoConstraints={videoConstraints}
             className="absolute inset-0 h-full w-full object-cover"
             style={{ transform: 'scaleX(-1)' }}
+            onUserMedia={() => setCameraReady(true)}
           />
           {/* Face guide overlay — cutout oval di tengah */}
           <div className="absolute inset-0 pointer-events-none z-10" aria-hidden="true">
@@ -583,8 +793,26 @@ export default function CameraAbsen() {
             </div>
           </div>
           
+          {/* ── Loading overlay saat model MediaPipe atau kamera belum siap ── */}
+          {step === 'face' && (isModelLoading || !cameraReady) && (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70">
+              <div className="w-20 h-20 border-4 border-teal-400 border-t-transparent rounded-full animate-spin mb-6" />
+              {isModelLoading ? (
+                <>
+                  <p className="text-teal-300 font-bold text-lg tracking-wide">Memuat Model Deteksi Wajah...</p>
+                  <p className="text-gray-400 text-sm mt-2">Download ~15MB dari server Google</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-teal-300 font-bold text-lg tracking-wide">Mengaktifkan Kamera...</p>
+                  <p className="text-gray-400 text-sm mt-2">Mohon izinkan akses kamera jika diminta browser</p>
+                </>
+              )}
+            </div>
+          )}
+
           <div className="absolute bottom-24 left-0 right-0 px-6 text-center z-20">
-            {step === 'face' && (
+            {step === 'face' && !isModelLoading && cameraReady && (
               <div className={`bg-black/40 p-4 rounded-2xl mb-4 border backdrop-blur-sm transition-colors ${
                 !facePreCheckFaceDetected
                   ? 'border-red-500/30'
@@ -594,11 +822,11 @@ export default function CameraAbsen() {
                       ? 'border-green-500/50'
                       : 'border-amber-500/50'
               }`}>
-                <ScanFace size={32} className="mx-auto mb-2 text-teal-400" />
+                <Scan size={32} className="mx-auto mb-2 text-teal-400" />
                 <p className="font-medium text-sm">
                   {!facePreCheckFaceDetected
                     ? 'Wajah tidak terdeteksi — posisikan di dalam bingkai'
-                    : 'Posisikan wajah Anda di dalam bingkai'}
+                    : 'Posisikan wajah Anda di dalam bingkai dan lihat ke kamera, jangan tengok kanan/kiri/atas/bawah'}
                 </p>
 
                 {/* Face not detected warning */}
@@ -619,7 +847,7 @@ export default function CameraAbsen() {
                 {/* Result: cocok */}
                 {facePreCheckFaceDetected && !facePreChecking && facePreCheckPass === true && (
                   <div className="mt-2 flex items-center justify-center gap-1.5 text-xs font-semibold text-green-300">
-                    <ShieldCheck size={14} />
+                    <BadgeCheck size={14} />
                     Wajah terverifikasi {facePreCheckScore !== null && `(skor ${facePreCheckScore.toFixed(3)})`}
                   </div>
                 )}
@@ -628,24 +856,52 @@ export default function CameraAbsen() {
                 {facePreCheckFaceDetected && !facePreChecking && facePreCheckPass === false && (
                   <div className="mt-2">
                     <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-amber-300">
-                      <ShieldCheck size={14} />
-                      Wajah tidak cocok (skor {facePreCheckScore?.toFixed(3) ?? '-'})
+                      <AlertCircle size={14} />
+                      Wajah tidak cocok (skor {facePreCheckScore?.toFixed(3) ?? '-'}) Tunggu Skor Hijau baru absen
                     </div>
                     <p className="mt-1 text-[10px] text-amber-400/70">
-                      Anda tetap bisa lanjut — admin akan mendapat notifikasi
+                      Perbaiki posisi/pencahayaan hingga skor hijau sebelum absen
                     </p>
                   </div>
                 )}
               </div>
             )}
             {step === 'liveness' && (
-              <div className="bg-black/30 p-4 rounded-2xl mb-6 animate-pulse border border-yellow-500/30">
-                <p className="font-bold text-yellow-400 text-xl tracking-wide">Kedipkan Mata Anda</p>
-                <p className="text-sm mt-2 text-gray-300">Sistem sedang mendeteksi liveness...</p>
+              <div className={`bg-black/30 p-4 rounded-2xl mb-6 border ${livenessTimedOut ? 'border-red-500/40' : 'border-yellow-500/30 animate-pulse'}`}>
+                {livenessTimedOut ? (
+                  <>
+                    <p className="font-bold text-red-400 text-xl tracking-wide">Verifikasi Liveness Gagal</p>
+                    <p className="text-sm mt-2 text-gray-300">Absen tetap dicatat, namun akan ditinjau admin</p>
+                  </>
+                ) : challenges && currentChallengeIdx < challenges.length ? (
+                  <>
+                    <p className="font-bold text-yellow-400 text-xl tracking-wide">{challenges[currentChallengeIdx].label}</p>
+                    <p className="text-sm mt-2 text-gray-300">{challenges[currentChallengeIdx].hint}</p>
+                    <div className="flex items-center justify-center gap-2 mt-3">
+                      {challenges.map((_, i) => (
+                        <span
+                          key={i}
+                          className={`w-2 h-2 rounded-full ${
+                            i < currentChallengeIdx
+                              ? 'bg-green-400'
+                              : i === currentChallengeIdx
+                                ? 'bg-yellow-400'
+                                : 'bg-white/25'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-bold text-yellow-400 text-xl tracking-wide">Verifikasi Liveness...</p>
+                    <p className="text-sm mt-2 text-gray-300">Sistem sedang memverifikasi...</p>
+                  </>
+                )}
               </div>
             )}
             
-            {step === 'face' && (
+            {step === 'face' && !isModelLoading && cameraReady && (
               <>
                 {/* Model error: HP tidak support */}
                 {modelLoadError && (
@@ -655,9 +911,12 @@ export default function CameraAbsen() {
                       size="sm"
                       className="mt-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-sm font-semibold"
                       onClick={() => {
-                        // Model gagal — skip face + liveness, langsung foto
+                        // Model gagal — skip face + liveness, langsung foto.
+                        // Karena tidak ada verifikasi, absen ditandai mencurigakan.
                         const imageSrc = webcamRef.current?.getScreenshot();
                         if (imageSrc) setPhoto(imageSrc);
+                        setLivenessPassed(false);
+                        setLivenessTimedOut(true);
                         setStep('success');
                       }}
                     >
@@ -671,16 +930,19 @@ export default function CameraAbsen() {
                   className={`w-full rounded-2xl font-bold h-16 text-xl transition-all ${
                     !facePreCheckFaceDetected
                       ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                      : 'bg-teal-600 hover:bg-teal-500 text-white'
+                      : facePreCheckPass === true
+                        ? 'bg-teal-600 hover:bg-teal-500 text-white'
+                        : 'bg-gray-600 text-gray-400 cursor-not-allowed'
                   }`}
                   onClick={handleNextStep}
-                  disabled={isModelLoading || !facePreCheckFaceDetected}
+                  disabled={isModelLoading || !facePreCheckFaceDetected || facePreChecking || facePreCheckPass !== true}
                 >
                   {isModelLoading ? (
                     <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Memuat Model...</>
                   ) : !facePreCheckFaceDetected ? (
                     'Tunggu Wajah Terdeteksi'
-
+                  ) : facePreCheckPass !== true ? (
+                    'Tunggu Skor Hijau...'
                   ) : (
                     'Lanjutkan Absen'
                   )}
@@ -698,8 +960,16 @@ export default function CameraAbsen() {
         </button>
         <h2 className="font-bold text-lg tracking-wide drop-shadow-md">{isCheckOut ? 'Absen Keluar' : 'Absen Masuk'}</h2>
         
+        {/* ── Loading badge ── */}
+        {step === 'face' && isModelLoading && (
+          <span className="flex items-center gap-1.5 text-[11px] text-teal-300 bg-teal-500/20 px-2.5 py-1 rounded-full border border-teal-400/30">
+            <Loader2 size={10} className="animate-spin" />
+            Download Model...
+          </span>
+        )}
+
         {/* ── Real-time face match score (step 'face' saja) ── */}
-        {step === 'face' && (
+        {step === 'face' && !isModelLoading && cameraReady && (
           <div className="flex items-center gap-2">
             {facePreChecking && !facePreCheckFaceDetected && (
               <span className="text-[11px] text-gray-400 bg-black/30 px-2 py-1 rounded-full">
@@ -875,9 +1145,19 @@ export default function CameraAbsen() {
           {/* Small warning only when face doesn't match */}
           {faceMatchPass === false && (
             <div className="flex items-center gap-2 bg-amber-500/20 border border-amber-500/40 rounded-xl px-3 py-2 mb-4">
-              <ShieldCheck size={14} className="text-amber-300 flex-shrink-0" />
+              <BadgeCheck size={14} className="text-amber-300 flex-shrink-0" />
               <p className="text-xs text-amber-200">
                 Wajah tidak cocok (skor {faceMatchScore?.toFixed(2) ?? '-'})
+              </p>
+            </div>
+          )}
+
+          {/* Warning when liveness gagal / diverifikasi tidak bisa */}
+          {livenessPassed === false && (
+            <div className="flex items-center gap-2 bg-red-500/20 border border-red-500/40 rounded-xl px-3 py-2 mb-4">
+              <BadgeCheck size={14} className="text-red-300 flex-shrink-0" />
+              <p className="text-xs text-red-200">
+                Verifikasi liveness gagal — absen ditandai & akan ditinjau admin
               </p>
             </div>
           )}

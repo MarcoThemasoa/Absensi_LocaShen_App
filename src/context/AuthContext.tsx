@@ -5,6 +5,7 @@ import type { Session } from '@supabase/supabase-js';
 import { initLocationCache } from '../lib/locationCache';
 import { preloadFaceLandmarker } from '../lib/faceLandmarker';
 import { getFaceEnrollmentInfo } from '../lib/faceMatcher';
+import { checkDeviceChangeOnLogin } from '../lib/deviceBinding';
 
 
 interface TodayAttendance {
@@ -273,6 +274,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Cek status face enrollment untuk employee
     if (profile.role === 'employee') {
       await checkFaceEnrollment(data.user.id);
+      // Waspada dini: login dari perangkat berbeda → notifikasi ke admin.
+      // Fire-and-forget — kegagalan deteksi tidak boleh memblokir login.
+      checkDeviceChangeOnLogin(data.user.id).catch((err) =>
+        console.error('[Auth] Gagal cek device saat login:', err)
+      );
     }
   };
 

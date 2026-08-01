@@ -277,7 +277,7 @@ export default function AdminEmployees() {
 
   return (
     <div className="space-y-6 pb-10">
-      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+      <div className="flex flex-col gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-gray-900 drop-shadow-sm">Manajemen Karyawan</h1>
           <p className="text-gray-500 font-medium mt-1">Persetujuan pendaftar baru dan daftar seluruh karyawan.</p>

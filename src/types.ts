@@ -26,6 +26,8 @@ export interface AttendanceRecord {
   photoUrl?: string;
   isForgotClockOut?: boolean;
   faceMatchScore?: number | null; // NULL = belum dicek, < threshold = cocok, ≥ threshold = mencurigakan
+  livenessPassed?: boolean | null; // hasil verifikasi liveness (null = tidak dicek)
+  isSuspicious?: boolean; // true = wajah tidak cocok / liveness gagal / ganti device
 }
 
 export interface OfficeLocation {
