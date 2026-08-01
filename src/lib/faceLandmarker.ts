@@ -241,7 +241,15 @@ export function averageDescriptors(descriptors: number[][]): number[] | null {
 }
 
 /**
- * Threshold Euclidean distance untuk face matching.
+ * ⚠️ LEGACY — TIDAK DIPAKAI LAGI.
+ *
+ * Sejak upgrade ke @vladmandic/face-api (faceApi.ts), verifikasi wajah
+ * memakai descriptor 128-d yang dilatih khusus untuk face recognition.
+ * Fungsi-fungsi di bawah (extractDescriptor / matchDescriptorXY /
+ * averageDescriptors / FACE_MATCH_THRESHOLD) dipertahankan hanya sebagai
+ * referensi & backfill data lama — HANYA dipakai untuk MIGRASI data.
+ *
+ * Threshold Euclidean distance untuk face matching (legacy).
  * Setelah descriptor di-L2-normalize (unit vector, range 0–2):
  *   - 0.0–0.4 : wajah sama, ekspresi mirip
  *   - 0.4–0.6 : wajah sama, ekspresi/pose beda (masih wajar)

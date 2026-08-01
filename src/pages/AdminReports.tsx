@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { cachedQuery } from '../lib/supabaseCache';
 import { Download, Search, Maximize2, ChevronLeft, ChevronRight, Activity, Clock, MapPin, ShieldAlert, ShieldCheck, Smartphone, Bell } from 'lucide-react';
-import { FACE_MATCH_THRESHOLD } from '../lib/faceLandmarker';
+import { FACE_MATCH_DISTANCE } from '../lib/faceApi';
 import { format, parseISO } from 'date-fns';
 import { indonesianLocale } from '../lib/date-locale';
 import { Combobox } from '../components/ui/combobox';
@@ -160,6 +160,7 @@ export default function AdminReports() {
   const [logTimeFilter, setLogTimeFilter] = useState<'1hari' | '7hari' | '1bulan' | 'semua'>('1hari');
   const [logCurrentPage, setLogCurrentPage] = useState(1);
   const [isLogDialogOpen, setIsLogDialogOpen] = useState(false);
+  const [logLoading, setLogLoading] = useState(false);
   const logsPerPage = 15;
 
   // Auto-buka dialog Log Aktivitas kalau URL ada ?log=1
@@ -181,6 +182,7 @@ export default function AdminReports() {
   useEffect(() => {
     async function fetchReports() {
       setLoading(true);
+      setLogLoading(true);
 
       const startDate = getStartDate(timeFilter);
       const logStartDate = getStartDate(logTimeFilter);
@@ -279,6 +281,7 @@ export default function AdminReports() {
         ));
       }
 
+      setLogLoading(false);
       setLoading(false);
     }
     fetchReports();
@@ -340,7 +343,7 @@ export default function AdminReports() {
     const rows = reportsToExport.map(r => {
       const locName = locations.find(l => l.id === r.locationId)?.name || '';
       const faceStr = (r.faceMatchScore !== null && r.faceMatchScore !== undefined)
-        ? (r.faceMatchScore < FACE_MATCH_THRESHOLD ? 'Cocok' : `Mencurigakan (${r.faceMatchScore.toFixed(3)})`)
+        ? (r.faceMatchScore < FACE_MATCH_DISTANCE ? 'Cocok' : `Mencurigakan (${r.faceMatchScore.toFixed(3)})`)
         : '-';
       const verifyStr = r.isSuspicious ? 'Mencurigakan' : 'Normal';
       return `${r.id},${r.date},"${r.userName}",${r.timeIn},${r.timeOut || ''},${r.status},"${locName}","${faceStr}","${verifyStr}"`;
@@ -379,7 +382,22 @@ export default function AdminReports() {
                 </div>
               </DialogHeader>
               <div className="overflow-y-auto flex-1 p-4 space-y-3">
-                {paginatedLogs.length > 0 ? paginatedLogs.map((log) => (
+                {logLoading ? (
+                  // Skeleton loading — tampilkan placeholder shimmer sambil fetch
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="rounded-2xl border border-gray-100 bg-white shadow-sm p-4">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="h-3.5 w-3/5 bg-gray-200 rounded-full animate-pulse" />
+                        <div className="h-5 w-14 bg-gray-200 rounded-md animate-pulse" />
+                      </div>
+                      <div className="h-3 w-1/4 bg-gray-100 rounded-full animate-pulse mb-3" />
+                      <div className="flex items-center gap-3">
+                        <div className="h-3 w-24 bg-gray-100 rounded-full animate-pulse" />
+                        <div className="h-3 w-20 bg-gray-100 rounded-full animate-pulse" />
+                      </div>
+                    </div>
+                  ))
+                ) : paginatedLogs.length > 0 ? paginatedLogs.map((log) => (
                   <div key={log.id} className="rounded-2xl border border-gray-100 bg-white shadow-sm p-4 hover:shadow-md transition-shadow">
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <h3 className="font-bold text-gray-900 text-sm leading-snug line-clamp-2">{log.action}</h3>
@@ -569,7 +587,7 @@ export default function AdminReports() {
                       </div>
                       {report.faceMatchScore !== null && report.faceMatchScore !== undefined && (
                         <div className="flex items-center gap-1 mt-1">
-                          {report.faceMatchScore < FACE_MATCH_THRESHOLD ? (
+                          {report.faceMatchScore < FACE_MATCH_DISTANCE ? (
                             <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-green-700">
                               <ShieldCheck size={10} /> Wajah Cocok
                             </span>
@@ -612,7 +630,7 @@ export default function AdminReports() {
                           <div className="col-span-2">
                             <p className="text-gray-400 font-medium text-xs">Kecocokan Wajah</p>
                             <div className="flex items-center gap-1.5 mt-0.5">
-                              {report.faceMatchScore < FACE_MATCH_THRESHOLD ? (
+                              {report.faceMatchScore < FACE_MATCH_DISTANCE ? (
                                 <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200">
                                   <ShieldCheck size={12} /> Cocok (skor: {report.faceMatchScore.toFixed(3)})
                                 </span>
@@ -695,13 +713,13 @@ export default function AdminReports() {
                     </TableCell>
                     <TableCell className="text-center">
                       {report.faceMatchScore !== null && report.faceMatchScore !== undefined ? (
-                        report.faceMatchScore < FACE_MATCH_THRESHOLD ? (
+                        report.faceMatchScore < FACE_MATCH_DISTANCE ? (
                           <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700 bg-green-50 px-2 py-1 rounded-full border border-green-200">
                             <ShieldCheck size={12} />
                             Cocok
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 px-2 py-1 rounded-full border border-red-200" title={`Skor: ${report.faceMatchScore.toFixed(3)} (threshold: ${FACE_MATCH_THRESHOLD})`}>
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 px-2 py-1 rounded-full border border-red-200" title={`Skor: ${report.faceMatchScore.toFixed(3)} (threshold: ${FACE_MATCH_DISTANCE})`}>
                             <ShieldAlert size={12} />
                             Mencurigakan
                           </span>

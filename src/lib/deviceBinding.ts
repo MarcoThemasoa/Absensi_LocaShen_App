@@ -16,7 +16,7 @@
  */
 
 import { supabase } from './supabase';
-import { getDeviceId, getDeviceLabel } from './deviceIdentity';
+import { getDeviceId, getDeviceLabel, getShortDeviceType } from './deviceIdentity';
 
 export interface DeviceRegistration {
   deviceId: string;
@@ -24,22 +24,57 @@ export interface DeviceRegistration {
   changedFromLast: boolean; // beda dari device absen terakhir → mencurigakan
 }
 
-/** Label perangkat untuk pesan notifikasi (jangan sampai null/undefined). */
-function labelOrDevice(deviceId: string): string {
-  return getDeviceLabel() || deviceId || 'perangkat tidak dikenal';
+/**
+ * Ambil nama depan + nama cabang user untuk notifikasi.
+ * Fallback aman kalau query gagal — notifikasi tetap jalan.
+ */
+async function getUserInfoForNotif(userId: string): Promise<{ firstName: string; branch: string }> {
+  try {
+    const { data: profile } = await supabase
+      .from('users')
+      .select('name, location_id')
+      .eq('id', userId)
+      .maybeSingle();
+
+    const fullName = profile?.name || 'Karyawan';
+    const firstName = fullName.split(' ')[0] || fullName;
+
+    let branch = '';
+    if (profile?.location_id) {
+      const { data: loc } = await supabase
+        .from('office_locations')
+        .select('name')
+        .eq('id', profile.location_id)
+        .maybeSingle();
+      branch = loc?.name || '';
+    }
+
+    return { firstName, branch };
+  } catch (err) {
+    console.error('[DeviceBinding] Gagal ambil info user untuk notifikasi:', err);
+    return { firstName: 'Karyawan', branch: '' };
+  }
 }
 
 /**
  * Kirim notifikasi 'device_change' ke admin via RPC security definer.
  * Gagal kirim TIDAK memblokir alur utama (absen/login tetap jalan).
+ * Pesan singkat: "Perangkat login di device berbeda {JenisPerangkat}".
+ * Info nama + cabang user ditaruh di device_label supaya admin tetap tahu
+ * siapa & dari cabang mana (tanpa menambah userAgent panjang yang tidak
+ * berguna di dalam pesan).
  */
-export async function notifyDeviceChange(userId: string, deviceId: string): Promise<void> {
+export async function notifyDeviceChange(userId: string): Promise<void> {
   try {
+    const { firstName, branch } = await getUserInfoForNotif(userId);
+    const shortType = getShortDeviceType();
     await supabase.rpc('notify_admin', {
       p_type: 'device_change',
       p_user_id: userId,
-      p_message: `Karyawan login/absen dari perangkat berbeda: ${labelOrDevice(deviceId)}`,
-      p_device_label: getDeviceLabel(),
+      p_message: `Perangkat login di device berbeda ${shortType}`,
+      p_device_label: branch
+        ? `${firstName} · Cabang ${branch}`
+        : firstName,
     });
   } catch (err) {
     console.error('[DeviceBinding] Gagal kirim notifikasi device change:', err);
@@ -67,7 +102,7 @@ export async function checkDeviceChangeOnLogin(userId: string): Promise<boolean>
 
     const changed = existing.device_id !== deviceId;
     if (changed) {
-      await notifyDeviceChange(userId, deviceId);
+      await notifyDeviceChange(userId);
     }
     return changed;
   } catch (err) {
@@ -106,7 +141,7 @@ export async function registerDevice(userId: string): Promise<DeviceRegistration
 
   // Perubahan device = notifikasi langsung ke admin (selain flag is_suspicious)
   if (changedFromLast) {
-    await notifyDeviceChange(userId, deviceId);
+    await notifyDeviceChange(userId);
   }
 
   return { deviceId, isNewDevice, changedFromLast };

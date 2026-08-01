@@ -5,7 +5,8 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import { ArrowLeft, CheckCircle2, Scan, MapPinned, XCircle, Loader2, Clock, AlertCircle, BadgeCheck } from 'lucide-react';
-import { getFaceLandmarker, isFaceLandmarkerReady, extractDescriptor, matchDescriptorXY, estimateHeadPose, FACE_MATCH_THRESHOLD, getDetectionIntervalMs, isLowEndDevice } from '../lib/faceLandmarker';
+import { getFaceLandmarker, isFaceLandmarkerReady, estimateHeadPose, getDetectionIntervalMs, isLowEndDevice } from '../lib/faceLandmarker';
+import { initFaceApi, extractFaceDescriptor, matchFaceDistance, captureFaceSnapshot, FACE_MATCH_DISTANCE } from '../lib/faceApi';
 import type { HeadPose } from '../lib/faceLandmarker';
 import type { FaceLandmarker } from '@mediapipe/tasks-vision';
 import { useAuth } from '../context/AuthContext';
@@ -63,8 +64,12 @@ export default function CameraAbsen() {
   // Throttle deteksi — lebih jarang di HP low-end biar tidak kewalahan
   const DETECTION_INTERVAL = getDetectionIntervalMs(150); // ms
   const liveDescriptorRef = useRef<number[] | null>(null);
-  const liveDescBuffer = useRef<number[][]>([]); // buffer N frame terakhir untuk averaging
+  // Buffer SNAPSHOT canvas frame frontal terakhir (bukan descriptor) —
+  // extraction face-api async dilakukan di finishLiveness, bukan per-frame.
+  const liveSnapBuffer = useRef<HTMLCanvasElement[]>([]);
   const MAX_BUFFER = 10;
+  // Guard: cegah dua extraction face-api berjalan bersamaan (async & berat)
+  const isFaceApiExtractingRef = useRef(false);
   // ── EMA smoothing untuk pose ──
   // MediaPipe memberi yaw/pitch per-frame yang noisy. Kalau threshold dipakai
   // langsung ke 1 frame, kedutan/goyangan kecil bisa "memenuhi" challenge lalu
@@ -85,6 +90,9 @@ export default function CameraAbsen() {
 
   // ── Continuous pre-check: deteksi wajah real-time di step 'face' ──
   const storedDescriptorRef = useRef<number[] | null>(null);
+  // Guard: loadFaceDescriptor hanya dipanggil SEKALI per sesi step 'face'
+  // (mencegah request berulang saat user belum enrollment / load selesai).
+  const storedLoadAttemptedRef = useRef(false);
   const faceCheckFrameRef = useRef(0);
   const [facePreCheckScore, setFacePreCheckScore] = useState<number | null>(null);
   const [facePreCheckPass, setFacePreCheckPass] = useState<boolean | null>(null);
@@ -123,48 +131,68 @@ export default function CameraAbsen() {
       setFacePreCheckFaceDetected(!!hasFace);
 
       if (hasFace && user?.id) {
-        const desc = extractDescriptor(results.faceLandmarks[0]);
-        if (desc && storedDescriptorRef.current) {
+        const landmarks = results.faceLandmarks[0];
+
+        if (!storedDescriptorRef.current) {
+          // Belum ada stored — coba load SEKALI (tanpa extraction face-api
+          // dulu; skor akan dihitung di iterasi berikutnya).
+          if (storedLoadAttemptedRef.current) {
+            // Sudah pernah dicoba; stored tetap null = belum enrollment.
+            // Tidak perlu load ulang setiap frame.
+            if (!facePreChecking) setFacePreChecking(false);
+          } else {
+            storedLoadAttemptedRef.current = true;
+            setFacePreChecking(true);
+            loadFaceDescriptor(user.id)
+              .then((stored) => {
+                storedDescriptorRef.current = stored;
+                if (!stored) {
+                  // Belum enrollment — izinkan
+                  setFacePreCheckPass(true);
+                  setFacePreCheckScore(null);
+                }
+              })
+              .catch(() => {
+                setFacePreCheckPass(true); // fallback: izinkan
+              })
+              .finally(() => {
+                setFacePreChecking(false);
+              });
+          }
+        } else {
           // ── HANYA hitung skor kalau wajah FRONTAL ──
           // Kalau user sedang menoleh/mendongak (misal saat liveness nanti),
           // deskriptor menyimpang dari wajah frontal tersimpan → skor naik
           // padahal wajah sama. Jadi lewati perhitungan saat pose jauh dari frontal.
-          const headPose = estimateHeadPose(results.faceLandmarks[0]);
+          const headPose = estimateHeadPose(landmarks);
           const isFrontal = Math.abs(headPose.yaw) <= FRONTAL_YAW_MAX
             && Math.abs(headPose.pitch) <= FRONTAL_PITCH_MAX;
 
-          if (isFrontal) {
-            // Update skor setiap beberapa frame (biar halus)
+          if (isFrontal && !isFaceApiExtractingRef.current) {
+            // Update skor setiap beberapa frame (biar halus) + throttle
             faceCheckFrameRef.current++;
             if (faceCheckFrameRef.current % 3 === 0) { // setiap ~600ms
-              const score = matchDescriptorXY(desc, storedDescriptorRef.current);
-              setFacePreCheckScore(score);
-              setFacePreCheckPass(score < FACE_MATCH_THRESHOLD);
-              setFacePreChecking(false);
+              const snap = captureFaceSnapshot(video, landmarks);
+              if (snap) {
+                isFaceApiExtractingRef.current = true;
+                extractFaceDescriptor(snap)
+                  .then((liveDesc) => {
+                    if (liveDesc && storedDescriptorRef.current) {
+                      const score = matchFaceDistance(liveDesc, storedDescriptorRef.current);
+                      setFacePreCheckScore(score);
+                      setFacePreCheckPass(score <= FACE_MATCH_DISTANCE);
+                    }
+                  })
+                  .catch((err) => {
+                    console.error('[FaceCheckLoop] extract face-api gagal:', err);
+                  })
+                  .finally(() => {
+                    isFaceApiExtractingRef.current = false;
+                  });
+                setFacePreChecking(false);
+              }
             }
           }
-        } else if (desc && !storedDescriptorRef.current) {
-          // Belum ada stored — coba load sekali
-          setFacePreChecking(true);
-          loadFaceDescriptor(user.id)
-            .then((stored) => {
-              if (stored) {
-                storedDescriptorRef.current = stored;
-                const score = matchDescriptorXY(desc, stored);
-                setFacePreCheckScore(score);
-                setFacePreCheckPass(score < FACE_MATCH_THRESHOLD);
-              } else {
-                // Belum enrollment — izinkan
-                setFacePreCheckPass(true);
-                setFacePreCheckScore(null);
-              }
-            })
-            .catch(() => {
-              setFacePreCheckPass(true); // fallback: izinkan
-            })
-            .finally(() => {
-              setFacePreChecking(false);
-            });
         }
       }
     } catch (err) {
@@ -180,6 +208,7 @@ export default function CameraAbsen() {
     if (step === 'face') {
       // Mulai load stored descriptor di background
       storedDescriptorRef.current = null;
+      storedLoadAttemptedRef.current = false;
       faceCheckFrameRef.current = 0;
       setFacePreCheckScore(null);
       setFacePreCheckPass(null);
@@ -330,15 +359,17 @@ export default function CameraAbsen() {
              smoothed.pitch += POSE_EMA_ALPHA * (headPose.pitch - smoothed.pitch);
              const pose: HeadPose = { yaw: smoothed.yaw, pitch: smoothed.pitch };
 
-             // ── Buffer descriptor: HANYA frame frontal ──
+             // ── Buffer snapshot: HANYA frame frontal ──
              // Wajah yang sedang menoleh (yaw/pitch besar) tidak dimasukkan ke
              // buffer averaging → skor face-match tetap stabil di wajah frontal.
+             // Snapshot disimpan sebagai canvas (extraction face-api async
+             // dilakukan di finishLiveness, bukan per-frame).
              if (Math.abs(pose.yaw) <= FRONTAL_YAW_MAX && Math.abs(pose.pitch) <= FRONTAL_PITCH_MAX) {
-               const desc = extractDescriptor(landmarks);
-               if (desc) {
-                 liveDescBuffer.current.push(desc);
-                 if (liveDescBuffer.current.length > MAX_BUFFER) {
-                   liveDescBuffer.current.shift(); // buang frame paling lama
+               const snap = captureFaceSnapshot(video, landmarks);
+               if (snap) {
+                 liveSnapBuffer.current.push(snap);
+                 if (liveSnapBuffer.current.length > MAX_BUFFER) {
+                   liveSnapBuffer.current.shift(); // buang frame paling lama
                  }
                }
              }
@@ -394,41 +425,64 @@ export default function CameraAbsen() {
     const imageSrc = webcamRef.current?.getScreenshot();
     if (imageSrc) setPhoto(imageSrc);
 
-    // ── Average buffer descriptor untuk matching yang stabil ──
-    const buf = liveDescBuffer.current;
-    if (buf.length > 0) {
-      const len = buf[0].length;
-      const avg = new Array<number>(len).fill(0);
-      for (const d of buf) {
-        for (let i = 0; i < len; i++) avg[i] += d[i];
-      }
-      for (let i = 0; i < len; i++) avg[i] /= buf.length;
-      liveDescriptorRef.current = avg;
-    }
+    // ── Extract descriptor dari snapshot frontal → rata-rata → matching ──
+    // Extraction face-api async + berat, jadi tidak dijalankan per-frame di
+    // loop liveness. Dijalankan SEKALI di sini dari buffer snapshot.
+    const runFaceMatch = async () => {
+      try {
+        const video = webcamRef.current?.video;
+        if (!video || !user?.id) return;
 
-    // Start face matching in background — pake matchDescriptorXY (buang z)
-    if (user?.id) {
-      setIsFaceMatching(true);
-      loadFaceDescriptor(user.id)
-        .then((storedDesc) => {
-          if (storedDesc && liveDescriptorRef.current) {
-            const score = matchDescriptorXY(liveDescriptorRef.current, storedDesc);
+        await initFaceApi();
+        if (isFaceApiExtractingRef.current) return;
+        isFaceApiExtractingRef.current = true;
+
+        const descriptors: number[][] = [];
+        const snapshots = liveSnapBuffer.current;
+        // Batasi jumlah snapshot (ambil terbaru) biar tidak lambat
+        const toProcess = snapshots.slice(-MAX_BUFFER);
+        for (const snap of toProcess) {
+          const desc = await extractFaceDescriptor(snap);
+          if (desc) descriptors.push(desc);
+        }
+
+        let avgDesc: number[] | null = null;
+        if (descriptors.length > 0) {
+          const len = descriptors[0].length;
+          const avg = new Array<number>(len).fill(0);
+          for (const d of descriptors) {
+            for (let i = 0; i < len; i++) avg[i] += d[i];
+          }
+          for (let i = 0; i < len; i++) avg[i] /= descriptors.length;
+          avgDesc = avg;
+        }
+        liveDescriptorRef.current = avgDesc;
+
+        if (avgDesc) {
+          const storedDesc = await loadFaceDescriptor(user.id);
+          if (storedDesc) {
+            const score = matchFaceDistance(avgDesc, storedDesc);
             setFaceMatchScore(score);
-            setFaceMatchPass(score < FACE_MATCH_THRESHOLD);
-            if (score >= FACE_MATCH_THRESHOLD) {
-              console.warn(`[FaceMatch] Wajah tidak cocok! Score: ${score.toFixed(4)} (threshold: ${FACE_MATCH_THRESHOLD})`);
+            setFaceMatchPass(score <= FACE_MATCH_DISTANCE);
+            if (score > FACE_MATCH_DISTANCE) {
+              console.warn(`[FaceMatch] Wajah tidak cocok! Jarak: ${score.toFixed(4)} (threshold: ${FACE_MATCH_DISTANCE})`);
             } else {
-              console.log(`[FaceMatch] Wajah cocok. Score: ${score.toFixed(4)}`);
+              console.log(`[FaceMatch] Wajah cocok. Jarak: ${score.toFixed(4)}`);
             }
           }
-        })
-        .catch((err) => {
-          console.error('[FaceMatch] Gagal load descriptor:', err);
-          // Jika tidak ada descriptor (belum enroll), abaikan saja
-        })
-        .finally(() => {
-          setIsFaceMatching(false);
-        });
+        }
+      } catch (err) {
+        console.error('[FaceMatch] Gagal memproses wajah:', err);
+      } finally {
+        isFaceApiExtractingRef.current = false;
+        setIsFaceMatching(false);
+      }
+    };
+
+    // Start face matching in background
+    if (user?.id) {
+      setIsFaceMatching(true);
+      runFaceMatch();
     }
 
     // Small delay before moving to success
@@ -468,7 +522,7 @@ export default function CameraAbsen() {
       blinkCycleRef.current = createBlinkCycleState();
       smoothedPoseRef.current = { yaw: 0, pitch: 0 }; // reset pose EMA per sesi
       livenessDoneRef.current = false;
-      liveDescBuffer.current = [];
+      liveSnapBuffer.current = [];
       setChallenges(chs);
       setCurrentChallengeIdx(0);
       setLivenessPassed(null);

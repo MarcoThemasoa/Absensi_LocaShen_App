@@ -22,8 +22,6 @@ import {
 import {
   getFaceLandmarker,
   isFaceLandmarkerReady,
-  extractDescriptor,
-  averageDescriptors,
   estimateHeadPose,
   isBlinking,
   POSE_YAW_THRESHOLD,
@@ -31,6 +29,13 @@ import {
   getDetectionIntervalMs,
   isLowEndDevice,
 } from '../lib/faceLandmarker';
+import {
+  initFaceApi,
+  extractFaceDescriptor,
+  averageDescriptors,
+  isFaceApiReady,
+  captureFaceSnapshot,
+} from '../lib/faceApi';
 import type { FaceLandmarker } from '@mediapipe/tasks-vision';
 import { useAuth } from '../context/AuthContext';
 import { saveFaceDescriptor, getFaceEnrollmentInfo, canReEnroll } from '../lib/faceMatcher';
@@ -43,6 +48,13 @@ type PoseId = 'right' | 'left' | 'up' | 'down' | 'blink';
  *  mencegah 1 frame noise/kedutan langsung dianggap valid.
  *  Kedip (holdMs: 0) dikecualikan karena mata menutup hanya ~100-300ms. */
 const POSE_HOLD_MS = 800;
+
+// Ambang "wajah cukup frontal" — HANYA frame dalam rentang ini yang boleh
+// masuk buffer template. Pose ekstrem tetap di-capture untuk liveness,
+// tapi tidak boleh mencemari template wajah (lihat komentar frontalBuffer).
+const FRONTAL_YAW_MAX = 0.35;
+const FRONTAL_PITCH_MAX = 0.30;
+const FRONTAL_BUFFER_MAX = 30;
 
 interface PoseDef {
   id: PoseId;
@@ -110,7 +122,18 @@ export default function FaceEnrollment() {
   const requestRef = useRef<number | null>(null);
   const lastVideoTime = useRef<number>(-1);
   const lastDetectionTime = useRef<number>(0);
-  const capturedFrames = useRef<number[][]>([]);
+  const capturedFrames = useRef<HTMLCanvasElement[]>([]);
+  // Buffer SNAPSHOT HANYA frame frontal — dipakai untuk template wajah.
+  // Frame pose ekstrem (tengok kanan/kiri/atas/bawah) TIDAK boleh masuk template:
+  // rata-rata pose-posa yang sangat berbeda menciptakan "wajah generik" yang
+  // kebetulan cocok dengan siapa pun (skor hijau palsu). Lihat handleSave.
+  //
+  // Snapshot disimpan sebagai canvas crop wajah (bukan descriptor) karena
+  // extraction face-api bersifat async + berat — extraction dilakukan sekali
+  // di handleSave, bukan per-frame di dalam RAF loop.
+  const frontalBuffer = useRef<HTMLCanvasElement[]>([]);
+  // Guard: cegah dua extraction face-api berjalan bersamaan.
+  const isExtractingRef = useRef(false);
   const poseCapturedRef = useRef<Set<PoseId>>(new Set());
   const currentPoseIdxRef = useRef<number>(0);
   const stepRef = useRef<EnrollStep>('prepare');
@@ -182,6 +205,13 @@ export default function FaceEnrollment() {
         setIsModelLoading(false);
         toast.error('Gagal memuat model wajah');
       });
+
+    // Preload face-api (descriptor 128-d) di background biar siap saat simpan
+    if (!isFaceApiReady()) {
+      initFaceApi().catch((err) =>
+        console.error('[FaceEnrollment] Gagal init face-api:', err),
+      );
+    }
   }, []);
 
   // Keep stepRef in sync with state
@@ -269,6 +299,25 @@ export default function FaceEnrollment() {
           const captured = poseCapturedRef.current.has(poseDef.id);
           const faceFullyVisible = isFaceFullyVisible(landmarks);
 
+          // ── Isi buffer TEMPLATE frontal setiap frame ──
+          // Hanya frame wajah frontal (yaw/pitch kecil) yang boleh jadi template.
+          // Frame pose ekstrem menciptakan "wajah generik" → skor hijau palsu
+          // untuk orang berbeda. Pose ekstrem tetap di-capture (liveness),
+          // tapi tidak ikut rata-rata template.
+          // Snapshot disimpan sebagai canvas crop (extraction face-api async
+          // dilakukan di handleSave, bukan per-frame).
+          if (faceFullyVisible
+            && Math.abs(headPose.yaw) <= FRONTAL_YAW_MAX
+            && Math.abs(headPose.pitch) <= FRONTAL_PITCH_MAX) {
+            const snap = captureFaceSnapshot(video, landmarks);
+            if (snap) {
+              frontalBuffer.current.push(snap);
+              if (frontalBuffer.current.length > FRONTAL_BUFFER_MAX) {
+                frontalBuffer.current.shift(); // buang frame paling lama
+              }
+            }
+          }
+
           // ── Wajah harus terbaca PENUH (tidak terpotong tepi) ──
           // Kalau wajah terlalu dekat sehingga dahi/dagu terpotong, pose
           // tidak dianggap valid — dorong pengguna mundur sedikit.
@@ -292,10 +341,10 @@ export default function FaceEnrollment() {
             }
 
             if (heldEnough) {
-              // Capture this pose
-              const desc = extractDescriptor(landmarks);
-              if (desc) {
-                capturedFrames.current.push(desc);
+              // Capture this pose — simpan snapshot canvas utk fallback template
+              const snap = captureFaceSnapshot(video, landmarks);
+              if (snap) {
+                capturedFrames.current.push(snap);
                 poseCapturedRef.current.add(poseDef.id);
                 setCapturedPoses(new Set(poseCapturedRef.current));
                 poseHoldStartRef.current = 0; // reset utk pose berikutnya
@@ -341,6 +390,7 @@ export default function FaceEnrollment() {
 
   const handleStartCapture = () => {
     capturedFrames.current = [];
+    frontalBuffer.current = [];
     poseCapturedRef.current = new Set();
     currentPoseIdxRef.current = 0;
     poseHoldStartRef.current = 0;
@@ -356,15 +406,54 @@ export default function FaceEnrollment() {
     setIsSaving(true);
 
     try {
-      const frames = capturedFrames.current;
-      if (frames.length < 2) {
+      // ── Template wajah = rata-rata descriptor frame FRONTAL saja ──
+      // Rata-rata pose ekstrem (kanan/kiri/atas/bawah) menciptakan vektor
+      // "wajah generik" yang cocok dengan siapa pun → skor hijau palsu.
+      // Pakai buffer frontal; fallback ke capturedFrames kalau terlalu sedikit
+      // (misal low-end device yang jarang kena frame frontal).
+      const snapshots = frontalBuffer.current.length >= 3
+        ? frontalBuffer.current
+        : capturedFrames.current;
+      if (snapshots.length < 2) {
         toast.error('Data wajah kurang. Silakan coba lagi.', { id: 'enroll-error-few' });
         setStep('prepare');
         setIsSaving(false);
         return;
       }
 
-      const avgDescriptor = averageDescriptors(frames);
+      // ── Pastikan model face-api siap sebelum ekstraksi ──
+      await initFaceApi();
+
+      // Ekstrak descriptor dari tiap snapshot (async, berat — throttle otomatis
+      // karena di-loop berurutan, bukan tiap frame). Guard mencegah overlap.
+      if (isExtractingRef.current) {
+        toast.error('Pemrosesan masih berjalan. Tunggu sebentar.', { id: 'enroll-error-busy' });
+        setStep('prepare');
+        setIsSaving(false);
+        return;
+      }
+      isExtractingRef.current = true;
+      const descriptors: number[][] = [];
+      try {
+        // Batasi jumlah snapshot yang diproses (ambil terbaru) biar tidak lambat
+        const MAX_PROCESS = 8;
+        const toProcess = snapshots.slice(-MAX_PROCESS);
+        for (const snap of toProcess) {
+          const desc = await extractFaceDescriptor(snap);
+          if (desc) descriptors.push(desc);
+        }
+      } finally {
+        isExtractingRef.current = false;
+      }
+
+      if (descriptors.length < 2) {
+        toast.error('Gagal memproses data wajah. Silakan coba lagi.', { id: 'enroll-error-process' });
+        setStep('prepare');
+        setIsSaving(false);
+        return;
+      }
+
+      const avgDescriptor = averageDescriptors(descriptors);
       if (!avgDescriptor) {
         toast.error('Gagal memproses data wajah.', { id: 'enroll-error-process' });
         setStep('prepare');
@@ -636,6 +725,7 @@ export default function FaceEnrollment() {
                 onClick={() => {
                   setStep('prepare');
                   capturedFrames.current = [];
+                  frontalBuffer.current = [];
                   poseCapturedRef.current = new Set();
                   currentPoseIdxRef.current = 0;
                   poseHoldStartRef.current = 0;

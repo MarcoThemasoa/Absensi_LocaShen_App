@@ -55,3 +55,19 @@ export function getDeviceLabel(): string {
   const shortUa = ua.length > 120 ? ua.slice(0, 120) : ua;
   return `${shortUa}${lang ? ` | lang:${lang}` : ''}${tz ? ` | tz:${tz}` : ''}`;
 }
+
+/**
+ * Jenis perangkat pendek untuk notifikasi — parsing userAgent ringan.
+ * Contoh: "Android", "iPhone", "iPad", "Windows", "macOS", "Linux".
+ */
+export function getShortDeviceType(): string {
+  const ua = navigator.userAgent || '';
+  if (/iPad/.test(ua)) return 'iPad';
+  if (/iPhone|iPod/.test(ua)) return 'iPhone';
+  if (/Android/.test(ua)) return 'Android';
+  if (/Windows/.test(ua)) return 'Windows';
+  if (/Macintosh|Mac OS X/.test(ua)) return 'macOS';
+  if (/CrOS/.test(ua)) return 'ChromeOS';
+  if (/Linux/.test(ua)) return 'Linux';
+  return 'Perangkat';
+}
