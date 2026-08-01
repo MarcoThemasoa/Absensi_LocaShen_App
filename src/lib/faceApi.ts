@@ -25,9 +25,10 @@
  *
  * Skor matching = Euclidean distance 128-d:
  *   - ~0.0–0.4 : wajah sama
- *   - 0.4–0.6  : kemungkinan wajah sama (batas)
- *   - > 0.6    : wajah berbeda
- * Threshold standar face-api / dlib: 0.6.
+ *   - 0.4–0.5  : kemungkinan wajah sama (batas)
+ *   - > 0.5    : wajah berbeda
+ * Threshold diperketat dari 0.6 → 0.5 atas permintaan admin
+ * (verifikasi lebih ketat, skor hijau hanya untuk kemiripan tinggi).
  */
 
 // Dynamic import agar tfjs (~2MB) tidak ikut bundle awal.
@@ -37,8 +38,8 @@ let api: FaceApiModule | null = null;
 let initPromise: Promise<FaceApiModule> | null = null;
 let initError: string | null = null;
 
-/** Threshold Euclidean distance — ≤ 0.6 dianggap wajah sama. */
-export const FACE_MATCH_DISTANCE = 0.6;
+/** Threshold Euclidean distance — ≤ 0.5 dianggap wajah sama. */
+export const FACE_MATCH_DISTANCE = 0.5;
 
 /**
  * Inisialisasi face-api sekali (singleton): set backend + load 3 model

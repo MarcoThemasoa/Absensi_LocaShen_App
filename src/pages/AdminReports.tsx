@@ -134,6 +134,8 @@ interface AdminActivityLog {
   id: string; adminId: string; adminName: string; action: string;
   timestamp: string; location: { lat: number; lng: number }; locationName: string;
   source: 'admin' | 'device' | 'late';
+  adminCabang?: string; // nama cabang user (dari users.location_id)
+  device?: string;      // jenis perangkat: Windows / Android / dll
 }
 
 export default function AdminReports() {
@@ -200,13 +202,13 @@ export default function AdminReports() {
           if (startDate) query = query.gte('date', startDate);
           return query;
         }, 180_000),
-        cachedQuery<any[]>('employees:users', () =>
-          supabase.from('users').select('id, name, role, status, location_id').eq('role', 'employee')
+        cachedQuery<any[]>('reports:users', () =>
+          supabase.from('users').select('id, name, role, status, location_id')
         ),
         cachedQuery<any[]>(logCacheKey, () => {
           let query = supabase
             .from('admin_activity_logs')
-            .select('id, admin_id, action, action_timestamp, location_lat, location_lng, location_name')
+            .select('id, admin_id, action, action_timestamp, location_lat, location_lng, location_name, device')
             .order('action_timestamp', { ascending: false })
             .limit(200);
           if (logStartDate) query = query.gte('action_timestamp', logStartDate);
@@ -226,6 +228,13 @@ export default function AdminReports() {
 
       const userData = userResult.data || [];
       const userMap = new Map(userData.map((u: any) => [u.id, u]));
+      // Map lokasi: location_id → nama cabang (untuk format "Oleh {Nama} - {Cabang}")
+      const locationNameById = new Map(locations.map((loc) => [loc.id, loc.name]));
+
+      const resolveCabang = (user: any): string => {
+        if (!user?.location_id) return '';
+        return locationNameById.get(user.location_id) || '';
+      };
 
       if (attResult.data && attResult.data.length > 0) {
         setReports(attResult.data.map((a: any) => {
@@ -256,6 +265,8 @@ export default function AdminReports() {
             location: { lat: l.location_lat || 0, lng: l.location_lng || 0 },
             locationName: l.location_name || '',
             source: 'admin' as const,
+            adminCabang: resolveCabang(admin),
+            device: l.device || undefined,
           };
         }));
       } else {
@@ -272,6 +283,7 @@ export default function AdminReports() {
           action: n.message, timestamp: n.created_at,
           location: { lat: 0, lng: 0 }, locationName: '',
           source: n.type === 'device_change' ? 'device' as const : 'late' as const,
+          adminCabang: resolveCabang(emp),
         };
       });
 
@@ -285,7 +297,7 @@ export default function AdminReports() {
       setLoading(false);
     }
     fetchReports();
-  }, [timeFilter, logTimeFilter]);
+  }, [timeFilter, logTimeFilter, locations]);
 
   useEffect(() => {
     setLogCurrentPage(1);
@@ -415,7 +427,9 @@ export default function AdminReports() {
                     </div>
                     {log.adminName && (
                       <p className="text-xs text-gray-500 font-medium mb-1.5">
-                        oleh {log.adminName}
+                        Oleh {log.adminName}
+                        {log.adminCabang ? ` - ${log.adminCabang}` : ''}
+                        {log.device ? ` (${log.device})` : ''}
                       </p>
                     )}
                     <div className="flex items-center gap-3 text-xs text-gray-500">
@@ -451,8 +465,8 @@ export default function AdminReports() {
                 <Button className="w-full bg-[#113129] hover:bg-[#1a4a3d] text-white rounded-xl h-11 font-bold" onClick={() => {
                   const dateStr = format(new Date(), 'dd-MMM-yyyy', { locale: indonesianLocale });
                   downloadCSV(
-                    ['ID', 'Waktu', 'Tindakan', 'Lokasi'],
-                    adminLogs.map(l => `${l.id},${l.timestamp},"${l.action}","${l.locationName}"`),
+                    ['ID', 'Waktu', 'Oleh', 'Cabang', 'Perangkat', 'Tindakan', 'Lokasi'],
+                    adminLogs.map(l => `${l.id},${l.timestamp},"Oleh ${l.adminName}","${l.adminCabang || ''}","${l.device || ''}","${l.action}","${l.locationName}"`),
                     `Log_Aktivitas_${dateStr}.csv`
                   );
                 }}>

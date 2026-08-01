@@ -173,14 +173,14 @@ BEGIN
 END $$;
 
 -- ─── ADMIN ACTIVITY LOGS (hardcoded against fixed date) ───
-INSERT INTO public.admin_activity_logs (admin_id, action, action_timestamp, location_lat, location_lng, location_name) VALUES
-  ('c0000000-0000-0000-0000-000000000001', 'Menyetujui pendaftaran akun: Siti Aminah',          '2026-07-22 01:03:54+00'::timestamptz,   -7.250445, 112.768845, 'Kantor Pusat Surabaya'),
-  ('c0000000-0000-0000-0000-000000000001', 'Mengubah status absensi Budi Santoso menjadi Telat', '2026-07-21 22:03:54+00'::timestamptz,   -7.250445, 112.768845, 'Kantor Pusat Surabaya'),
-  ('c0000000-0000-0000-0000-000000000001', 'Mengekspor data laporan absensi bulan Juli',         '2026-07-21 03:03:54+00'::timestamptz,   -7.250445, 112.768845, 'Kantor Pusat Surabaya'),
-  ('c0000000-0000-0000-0000-000000000001', 'Menambahkan lokasi baru: Cabang Malang',             '2026-07-20 03:03:54+00'::timestamptz,   -7.250445, 112.768845, 'Kantor Pusat Surabaya'),
-  ('c0000000-0000-0000-0000-000000000001', 'Menghapus akun karyawan: Test User',                 '2026-07-19 03:03:54+00'::timestamptz,   -7.250445, 112.768845, 'Kantor Pusat Surabaya'),
-  ('c0000000-0000-0000-0000-000000000001', 'Mengubah data akun Agus Pratama',                    '2026-07-18 03:03:54+00'::timestamptz,   -7.445214, 112.716186, 'Cabang Sidoarjo'),
-  ('c0000000-0000-0000-0000-000000000001', 'Menyetujui pendaftaran akun: Ahmad Dahlan',          '2026-07-17 03:03:54+00'::timestamptz,   -7.250445, 112.768845, 'Kantor Pusat Surabaya')
+INSERT INTO public.admin_activity_logs (admin_id, action, action_timestamp, location_lat, location_lng, location_name, device) VALUES
+  ('c0000000-0000-0000-0000-000000000001', 'Menyetujui pendaftaran akun: Siti Aminah',          '2026-07-22 01:03:54+00'::timestamptz,   -7.250445, 112.768845, 'Kantor Pusat Surabaya', 'Windows'),
+  ('c0000000-0000-0000-0000-000000000001', 'Mengubah status absensi Budi Santoso menjadi Telat', '2026-07-21 22:03:54+00'::timestamptz,   -7.250445, 112.768845, 'Kantor Pusat Surabaya', 'Windows'),
+  ('c0000000-0000-0000-0000-000000000001', 'Mengekspor data laporan absensi bulan Juli',         '2026-07-21 03:03:54+00'::timestamptz,   -7.250445, 112.768845, 'Kantor Pusat Surabaya', 'Android'),
+  ('c0000000-0000-0000-0000-000000000001', 'Menambahkan lokasi baru: Cabang Malang',             '2026-07-20 03:03:54+00'::timestamptz,   -7.250445, 112.768845, 'Kantor Pusat Surabaya', 'Android'),
+  ('c0000000-0000-0000-0000-000000000001', 'Menghapus akun karyawan: Test User',                 '2026-07-19 03:03:54+00'::timestamptz,   -7.250445, 112.768845, 'Kantor Pusat Surabaya', 'Windows'),
+  ('c0000000-0000-0000-0000-000000000001', 'Mengubah data akun Agus Pratama',                    '2026-07-18 03:03:54+00'::timestamptz,   -7.445214, 112.716186, 'Cabang Sidoarjo',      'Windows'),
+  ('c0000000-0000-0000-0000-000000000001', 'Menyetujui pendaftaran akun: Ahmad Dahlan',          '2026-07-17 03:03:54+00'::timestamptz,   -7.250445, 112.768845, 'Kantor Pusat Surabaya', 'Android')
 ON CONFLICT DO NOTHING;
 
 -- ─── FK AUTH.USERS TIDAK DIPASANG KEMBALI ───

@@ -80,8 +80,15 @@ create table if not exists public.admin_activity_logs (
   location_lat double precision,
   location_lng double precision,
   location_name text,
+  device text,
   created_at timestamptz default timezone('utc'::text, now()) not null
 );
+
+-- Idempotent column addition for existing tables (safe to re-run)
+do $$ begin
+  alter table public.admin_activity_logs add column device text;
+exception when duplicate_column then null;
+end $$;
 
 -- Face embeddings untuk verifikasi wajah saat absen
 create table if not exists public.face_embeddings (

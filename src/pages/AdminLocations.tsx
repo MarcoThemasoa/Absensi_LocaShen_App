@@ -14,6 +14,7 @@ import { MapContainer, TileLayer, Marker, useMapEvents, Circle, useMap, Popup } 
 import { Combobox } from '../components/ui/combobox';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import { getShortDeviceType } from '../lib/deviceIdentity';
 
 // Fix for default marker icon in leaflet
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -258,6 +259,7 @@ export default function AdminLocations() {
         location_lat: parseFloat(newLoc.lat),
         location_lng: parseFloat(newLoc.lng),
         location_name: newLoc.name,
+        device: getShortDeviceType(),
       });
 
       // 3. Update state lokal + refresh AuthContext + pilih lokasi baru
@@ -484,6 +486,7 @@ export default function AdminLocations() {
                       action_timestamp: new Date().toISOString(),
                       location_lat: parseFloat(editForm.lat), location_lng: parseFloat(editForm.lng),
                       location_name: editForm.name,
+                      device: getShortDeviceType(),
                     });
                     setLocations(prev => prev.map(l => l.id === selectedLocation.id ? {
                       ...l, name: editForm.name, address: editForm.address,

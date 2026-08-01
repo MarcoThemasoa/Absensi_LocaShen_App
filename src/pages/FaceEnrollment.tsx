@@ -35,8 +35,7 @@ import {
   averageDescriptors,
   isFaceApiReady,
   captureFaceSnapshot,
-} from '../lib/faceApi';
-import type { FaceLandmarker } from '@mediapipe/tasks-vision';
+} from '../lib/faceApi';import type { FaceLandmarker } from '@mediapipe/tasks-vision';
 import { useAuth } from '../context/AuthContext';
 import { saveFaceDescriptor, getFaceEnrollmentInfo, canReEnroll } from '../lib/faceMatcher';
 import { toast } from 'sonner';
@@ -167,6 +166,7 @@ export default function FaceEnrollment() {
   };
 
   const [isModelLoading, setIsModelLoading] = useState(!isFaceLandmarkerReady());
+  const [isApiLoading, setIsApiLoading] = useState(!isFaceApiReady());
   const [step, setStep] = useState<EnrollStep>('prepare');
   const [faceDetected, setFaceDetected] = useState(false);
   const [facePartiallyVisible, setFacePartiallyVisible] = useState(false);
@@ -208,9 +208,14 @@ export default function FaceEnrollment() {
 
     // Preload face-api (descriptor 128-d) di background biar siap saat simpan
     if (!isFaceApiReady()) {
-      initFaceApi().catch((err) =>
-        console.error('[FaceEnrollment] Gagal init face-api:', err),
-      );
+      initFaceApi()
+        .then(() => setIsApiLoading(false))
+        .catch((err) => {
+          console.error('[FaceEnrollment] Gagal init face-api:', err);
+          setIsApiLoading(false);
+        });
+    } else {
+      setIsApiLoading(false);
     }
   }, []);
 
@@ -557,10 +562,12 @@ export default function FaceEnrollment() {
                 size="lg"
                 className="w-full h-14 bg-teal-950 hover:bg-teal-900 rounded-2xl text-lg font-bold"
                 onClick={handleStartCapture}
-                disabled={isModelLoading}
+                disabled={isModelLoading || isApiLoading}
               >
                 {isModelLoading ? (
                   <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Memuat Model...</>
+                ) : isApiLoading ? (
+                  <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Memuat AI Wajah...</>
                 ) : 'Mulai Pemindaian'}
               </Button>
 
@@ -577,6 +584,17 @@ export default function FaceEnrollment() {
       {/* ── CAPTURING STEP ── */}
       {step === 'capturing' && (
         <div className="absolute inset-0 overflow-hidden bg-black">
+          {/* Loading guard — model/API masih belum siap (jarang, karena tombol
+              Mulai sudah di-disable) tapi tetap ada fallback visual */}
+          {(isModelLoading || isApiLoading) && (
+            <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/70">
+              <div className="w-16 h-16 border-4 border-teal-400 border-t-transparent rounded-full animate-spin mb-4" />
+              <p className="text-teal-300 font-bold tracking-wide">
+                {isModelLoading ? 'Memuat Model Deteksi Wajah...' : 'Memuat AI Pengenalan Wajah...'}
+              </p>
+            </div>
+          )}
+
           {/* @ts-ignore react-webcam types issue */}
           <Webcam
             audio={false}

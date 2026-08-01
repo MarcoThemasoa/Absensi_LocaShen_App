@@ -6,7 +6,7 @@ import { Card, CardContent } from '../components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import { ArrowLeft, CheckCircle2, Scan, MapPinned, XCircle, Loader2, Clock, AlertCircle, BadgeCheck } from 'lucide-react';
 import { getFaceLandmarker, isFaceLandmarkerReady, estimateHeadPose, getDetectionIntervalMs, isLowEndDevice } from '../lib/faceLandmarker';
-import { initFaceApi, extractFaceDescriptor, matchFaceDistance, captureFaceSnapshot, FACE_MATCH_DISTANCE } from '../lib/faceApi';
+import { initFaceApi, extractFaceDescriptor, matchFaceDistance, captureFaceSnapshot, FACE_MATCH_DISTANCE, isFaceApiReady } from '../lib/faceApi';
 import type { HeadPose } from '../lib/faceLandmarker';
 import type { FaceLandmarker } from '@mediapipe/tasks-vision';
 import { useAuth } from '../context/AuthContext';
@@ -42,6 +42,7 @@ export default function CameraAbsen() {
   const [cameraReady, setCameraReady] = useState(false);
   const [faceLandmarker, setFaceLandmarker] = useState<FaceLandmarker | null>(null);
   const [isModelLoading, setIsModelLoading] = useState(!isFaceLandmarkerReady());
+  const [isApiLoading, setIsApiLoading] = useState(!isFaceApiReady());
   const [modelLoadError, setModelLoadError] = useState<string | null>(null);
   const requestRef = useRef<number | null>(null);
   const lastVideoTime = useRef<number>(-1);
@@ -98,7 +99,8 @@ export default function CameraAbsen() {
   const [facePreCheckPass, setFacePreCheckPass] = useState<boolean | null>(null);
   const [facePreChecking, setFacePreChecking] = useState(true);
   const [facePreCheckFaceDetected, setFacePreCheckFaceDetected] = useState(false);
-
+  // True saat pengguna sedang menoleh/mendongak (tidak menghadap frontal)
+  const [faceLookingAway, setFaceLookingAway] = useState(false);
   // Continuous face detection loop untuk step 'face'
   const faceCheckLoop = useCallback(() => {
     // Hanya stop kalau step berubah (bukan 'face')
@@ -129,6 +131,7 @@ export default function CameraAbsen() {
       const results = faceLandmarker.detectForVideo(video, performance.now());
       const hasFace = results.faceLandmarks && results.faceLandmarks.length > 0;
       setFacePreCheckFaceDetected(!!hasFace);
+      if (!hasFace) setFaceLookingAway(false);
 
       if (hasFace && user?.id) {
         const landmarks = results.faceLandmarks[0];
@@ -167,30 +170,31 @@ export default function CameraAbsen() {
           const headPose = estimateHeadPose(landmarks);
           const isFrontal = Math.abs(headPose.yaw) <= FRONTAL_YAW_MAX
             && Math.abs(headPose.pitch) <= FRONTAL_PITCH_MAX;
+          setFaceLookingAway(!isFrontal);
 
           if (isFrontal && !isFaceApiExtractingRef.current) {
-            // Update skor setiap beberapa frame (biar halus) + throttle
+            // Skor di-update SETIAP siklus deteksi (≈200ms) — lebih real-time,
+            // bukan tiap 3 frame (~600ms). Guard isFaceApiExtractingRef mencegah
+            // dua ekstraksi berjalan bersamaan (async & berat).
             faceCheckFrameRef.current++;
-            if (faceCheckFrameRef.current % 3 === 0) { // setiap ~600ms
-              const snap = captureFaceSnapshot(video, landmarks);
-              if (snap) {
-                isFaceApiExtractingRef.current = true;
-                extractFaceDescriptor(snap)
-                  .then((liveDesc) => {
-                    if (liveDesc && storedDescriptorRef.current) {
-                      const score = matchFaceDistance(liveDesc, storedDescriptorRef.current);
-                      setFacePreCheckScore(score);
-                      setFacePreCheckPass(score <= FACE_MATCH_DISTANCE);
-                    }
-                  })
-                  .catch((err) => {
-                    console.error('[FaceCheckLoop] extract face-api gagal:', err);
-                  })
-                  .finally(() => {
-                    isFaceApiExtractingRef.current = false;
-                  });
-                setFacePreChecking(false);
-              }
+            const snap = captureFaceSnapshot(video, landmarks);
+            if (snap) {
+              isFaceApiExtractingRef.current = true;
+              extractFaceDescriptor(snap)
+                .then((liveDesc) => {
+                  if (liveDesc && storedDescriptorRef.current) {
+                    const score = matchFaceDistance(liveDesc, storedDescriptorRef.current);
+                    setFacePreCheckScore(score);
+                    setFacePreCheckPass(score <= FACE_MATCH_DISTANCE);
+                  }
+                })
+                .catch((err) => {
+                  console.error('[FaceCheckLoop] extract face-api gagal:', err);
+                })
+                .finally(() => {
+                  isFaceApiExtractingRef.current = false;
+                });
+              setFacePreChecking(false);
             }
           }
         }
@@ -297,6 +301,15 @@ export default function CameraAbsen() {
         setModelLoadError(
           'HP ini tidak mendukung deteksi wajah. Anda tetap bisa absen tanpa verifikasi wajah.'
         );
+      });
+
+    // Preload face-api (descriptor 128-d) di background — biar skor langsung
+    // muncul saat wajah terdeteksi, tanpa nunggu download model di tengah alur.
+    initFaceApi()
+      .then(() => setIsApiLoading(false))
+      .catch((error) => {
+        console.error('Error initializing face-api', error);
+        setIsApiLoading(false);
       });
 
     return () => clearTimeout(timeoutId);
@@ -847,14 +860,19 @@ export default function CameraAbsen() {
             </div>
           </div>
           
-          {/* ── Loading overlay saat model MediaPipe atau kamera belum siap ── */}
-          {step === 'face' && (isModelLoading || !cameraReady) && (
+          {/* ── Loading overlay saat model MediaPipe / AI face-api / kamera belum siap ── */}
+          {step === 'face' && (isModelLoading || isApiLoading || !cameraReady) && (
             <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70">
               <div className="w-20 h-20 border-4 border-teal-400 border-t-transparent rounded-full animate-spin mb-6" />
               {isModelLoading ? (
                 <>
                   <p className="text-teal-300 font-bold text-lg tracking-wide">Memuat Model Deteksi Wajah...</p>
                   <p className="text-gray-400 text-sm mt-2">Download ~15MB dari server Google</p>
+                </>
+              ) : isApiLoading ? (
+                <>
+                  <p className="text-teal-300 font-bold text-lg tracking-wide">Memuat AI Pengenalan Wajah...</p>
+                  <p className="text-gray-400 text-sm mt-2">Menyiapkan model verifikasi wajah</p>
                 </>
               ) : (
                 <>
@@ -883,6 +901,14 @@ export default function CameraAbsen() {
                     : 'Posisikan wajah Anda di dalam bingkai dan lihat ke kamera, jangan tengok kanan/kiri/atas/bawah'}
                 </p>
 
+                {/* Reminder kecil — tampil saat pengguna MENOLEH/mendongak
+                    (tidak menghadap frontal) supaya kembali ke posisi hadap kamera */}
+                {facePreCheckFaceDetected && faceLookingAway && (
+                  <p className="mt-2 text-[11px] text-amber-300/80">
+                    Lihat ke depan ke kamera — jangan menoleh atau mendongak
+                  </p>
+                )}
+
                 {/* Face not detected warning */}
                 {!facePreCheckFaceDetected && (
                   <p className="mt-2 text-[11px] text-red-300/80">
@@ -901,7 +927,6 @@ export default function CameraAbsen() {
                 {/* Result: cocok */}
                 {facePreCheckFaceDetected && !facePreChecking && facePreCheckPass === true && (
                   <div className="mt-2 flex items-center justify-center gap-1.5 text-xs font-semibold text-green-300">
-                    <BadgeCheck size={14} />
                     Wajah terverifikasi {facePreCheckScore !== null && `(skor ${facePreCheckScore.toFixed(3)})`}
                   </div>
                 )}
@@ -910,7 +935,6 @@ export default function CameraAbsen() {
                 {facePreCheckFaceDetected && !facePreChecking && facePreCheckPass === false && (
                   <div className="mt-2">
                     <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-amber-300">
-                      <AlertCircle size={14} />
                       Wajah tidak cocok (skor {facePreCheckScore?.toFixed(3) ?? '-'}) Tunggu Skor Hijau baru absen
                     </div>
                     <p className="mt-1 text-[10px] text-amber-400/70">
@@ -1015,10 +1039,10 @@ export default function CameraAbsen() {
         <h2 className="font-bold text-lg tracking-wide drop-shadow-md">{isCheckOut ? 'Absen Keluar' : 'Absen Masuk'}</h2>
         
         {/* ── Loading badge ── */}
-        {step === 'face' && isModelLoading && (
+        {step === 'face' && (isModelLoading || isApiLoading) && (
           <span className="flex items-center gap-1.5 text-[11px] text-teal-300 bg-teal-500/20 px-2.5 py-1 rounded-full border border-teal-400/30">
             <Loader2 size={10} className="animate-spin" />
-            Download Model...
+            {isModelLoading ? 'Download Model...' : 'Memuat AI...'}
           </span>
         )}
 
@@ -1037,7 +1061,7 @@ export default function CameraAbsen() {
               </span>
             )}
             {!facePreChecking && facePreCheckScore !== null && (
-              <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+              <span className={`text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1 ${
                 facePreCheckPass
                   ? 'bg-green-500/30 text-green-200 border border-green-400/40'
                   : 'bg-red-500/30 text-red-200 border border-red-400/40'
