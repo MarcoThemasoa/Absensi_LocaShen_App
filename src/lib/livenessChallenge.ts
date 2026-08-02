@@ -112,25 +112,25 @@ export const BLINK_THRESHOLD = 0.45;
 export const MAX_BLINK_CLOSED_MS = 1200;
 
 /**
- * Threshold TEGAS untuk liveness (beda dari enrollment):
+ * Threshold untuk liveness (beda dari enrollment):
  *   - yaw/pitch dinormalisasi ±1, 0 = lurus.
- *   - Yaw 0.75 ≈ hidung harus berpindah ~75% lebar rahang ke arah sisi
- *     (setara ~40-50° derajat, jauh di atas standar industri 15-20°)
- *     → WAJIB gerakan yang jelas & disengaja.
- *   - Pitch 0.60 (rumus pitch sudah dikalikan 4x → setara hidung bergeser
- *     ~15% tinggi wajah, ≈ 20-30°, di atas standar industri 12-15°).
- *   (Dinaikkan dari 0.60/0.50 karena user melaporkan masih terlalu sensitif;
- *   standar industri dari rule-based liveness: yaw ±15-20°, pitch ±12-15°.)
+ *   - Yaw 0.45 ≈ hidung berpindah ~45% lebar rahang ke arah sisi
+ *     (≈ 20-30° derajat) — cukup jelas tapi tidak terlalu ekstrem.
+ *   - Pitch 0.35 (rumus pitch sudah dikalikan 4x → setara hidung bergeser
+ *     ~9% tinggi wajah, ≈ 15-20°).
+ *   (Diturunkan dari 0.75/0.60 karena user melaporkan deteksi terlalu
+ *   lambat/kurang sensitif. Masih di atas threshold enrollment 0.30/0.25
+ *   sehingga tetap butuh gerakan yang jelas, bukan noise 1 frame.)
  */
-export const LIVENESS_YAW_THRESHOLD = 0.75;
-export const LIVENESS_PITCH_THRESHOLD = 0.60;
+export const LIVENESS_YAW_THRESHOLD = 0.45;
+export const LIVENESS_PITCH_THRESHOLD = 0.35;
 
 /**
  * Lama pose harus ditahan (ms) sebelum dianggap sah.
- * Industri hanya butuh ~100ms (3/5 frame); kita pakai 1200ms → jauh lebih
- * sulit untuk "nembak" pose sekilas saat video diputar.
+ * Diturunkan dari 1200ms → 600ms supaya deteksi lebih cepat & responsif,
+ * namun tetap cukup lama untuk mencegah "nembak" pose sekilas saat replay.
  */
-export const POSE_HOLD_MS = 1200;
+export const POSE_HOLD_MS = 600;
 
 /** Pool gesture yang bisa dipakai sebagai challenge liveness. */
 const CHALLENGE_POOL: ChallengeDef[] = [
@@ -177,8 +177,12 @@ const CHALLENGE_POOL: ChallengeDef[] = [
 /** Jumlah pose acak per sesi liveness. */
 export const CHALLENGE_COUNT = 3;
 
-/** Batas waktu menjawab SATU pose (ms). */
-export const CHALLENGE_TIMEOUT_MS = 8000;
+/**
+ * Batas waktu TOTAL untuk seluruh sesi liveness (ms).
+ * Semua challenge (CHALLENGE_COUNT pose) harus diselesaikan dalam batas ini.
+ * Kalau lewat → liveness dianggap gagal (absen tetap dicatat, ditandai mencurigakan).
+ */
+export const LIVENESS_SESSION_TIMEOUT_MS = 60000;
 
 /**
  * Acak array dengan Fisher–Yates berbasis crypto.getRandomValues.

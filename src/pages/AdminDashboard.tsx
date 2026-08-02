@@ -25,6 +25,7 @@ interface AdminNotification {
   type: 'device_change' | 'late_checkin';
   message: string;
   createdAt: string;
+  userName?: string;
 }
 
 /** Ikon per tipe notifikasi */
@@ -37,6 +38,30 @@ function NotificationIcon({ type }: { type: AdminNotification['type'] }) {
 /** Potong pesan notifikasi biar tidak terlalu panjang (mobile/desktop) */
 function truncateMessage(msg: string, max = 72): string {
   return msg.length > max ? msg.slice(0, max).trimEnd() + '…' : msg;
+}
+
+/** Potong nama karyawan — maksimal 10 karakter, sisanya diganti '…' */
+function truncateName(name: string, max = 10): string {
+  return name.length > max ? name.slice(0, max).trimEnd() + '…' : name;
+}
+
+/** Skeleton loading untuk daftar notifikasi terbaru */
+function NotificationSkeleton() {
+  return (
+    <div className="divide-y divide-gray-100/70">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="flex items-start gap-3 py-2.5">
+          <div className="w-5 h-5 rounded-full bg-gray-200 animate-pulse shrink-0" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="h-3.5 w-3/4 bg-gray-200 rounded-full animate-pulse" />
+            <div className="h-3 w-1/3 bg-gray-200 rounded-full animate-pulse" />
+            <div className="h-3 w-1/4 bg-gray-200 rounded-full animate-pulse" />
+          </div>
+          <div className="w-12 h-4 bg-gray-200 rounded-md animate-pulse shrink-0" />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 /** Skeleton placeholder for chart area */
@@ -82,6 +107,7 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -92,10 +118,11 @@ export default function AdminDashboard() {
 
   // ── Fetch notifikasi admin: 48 jam terakhir (tanpa cache supaya selalu segar) ──
   const fetchNotifications = useCallback(async () => {
+    setNotificationsLoading(true);
     const since = new Date(Date.now() - 48 * 3600_000).toISOString();
     const { data } = await supabase
       .from('admin_notifications')
-      .select('id, type, message, created_at')
+      .select('id, type, message, created_at, user_id, users(name)')
       .gte('created_at', since)
       .order('created_at', { ascending: false })
       .limit(20);
@@ -105,8 +132,10 @@ export default function AdminDashboard() {
         type: n.type,
         message: n.message,
         createdAt: n.created_at,
+        userName: n.users?.name || undefined,
       }))
     );
+    setNotificationsLoading(false);
   }, []);
 
   useEffect(() => {
@@ -288,7 +317,9 @@ export default function AdminDashboard() {
           </Button>
         </CardHeader>
         <CardContent>
-          {notifications.length === 0 ? (
+          {notificationsLoading ? (
+            <NotificationSkeleton />
+          ) : notifications.length === 0 ? (
             <p className="text-sm text-gray-400 font-medium py-2">
               Tidak ada notifikasi dalam 48 jam terakhir.
             </p>
@@ -306,6 +337,12 @@ export default function AdminDashboard() {
                         locale: indonesianLocale,
                       })}
                     </p>
+                    {/* Nama karyawan — kiri bawah card, dipotong jika > 10 karakter */}
+                    {n.userName && (
+                      <p className="text-[11px] text-teal-700 font-semibold mt-1">
+                        Oleh: {truncateName(n.userName)}
+                      </p>
+                    )}
                   </div>
                   <span
                     className={`shrink-0 text-[10px] font-bold uppercase rounded-md px-2 py-0.5 ring-1 ring-inset ${

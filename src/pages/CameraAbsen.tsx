@@ -17,7 +17,7 @@ import { invalidateCache } from '../lib/supabaseCache';
 import { fmtHHmm } from '../lib/utils';
 import { toast } from 'sonner';
 import { loadFaceDescriptor } from '../lib/faceMatcher';
-import { generateChallenges, CHALLENGE_COUNT, CHALLENGE_TIMEOUT_MS, updateBlinkCycle, createBlinkCycleState } from '../lib/livenessChallenge';
+import { generateChallenges, CHALLENGE_COUNT, LIVENESS_SESSION_TIMEOUT_MS, updateBlinkCycle, createBlinkCycleState } from '../lib/livenessChallenge';
 import type { ChallengeDef, BlinkCycleState } from '../lib/livenessChallenge';
 import { registerDevice } from '../lib/deviceBinding';
 
@@ -51,10 +51,14 @@ export default function CameraAbsen() {
   const [currentChallengeIdx, setCurrentChallengeIdx] = useState(0);
   const [livenessPassed, setLivenessPassed] = useState<boolean | null>(null);
   const [livenessTimedOut, setLivenessTimedOut] = useState(false);
+  // Countdown sisa detik untuk seluruh sesi liveness (60 detik)
+  const [livenessCountdown, setLivenessCountdown] = useState<number>(Math.floor(LIVENESS_SESSION_TIMEOUT_MS / 1000));
   // refs agar bisa dibaca dari dalam RAF loop tanpa stale closure
   const challengesRef = useRef<ChallengeDef[] | null>(null);
   const currentChallengeIdxRef = useRef(0);
   const challengeStartTimeRef = useRef(0);
+  const sessionStartTimeRef = useRef(0); // kapan sesi liveness dimulai (perf.now)
+  const lastCountdownTickRef = useRef(0); // kapan terakhir update countdown (perf.now)
   const poseHoldStartRef = useRef(0); // kapan pose mulai ditahan (perf.now)
   const blinkCycleRef = useRef<BlinkCycleState>(createBlinkCycleState()); // state siklus kedip
   const livenessDoneRef = useRef(false);
@@ -63,7 +67,7 @@ export default function CameraAbsen() {
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastDetectionTime = useRef<number>(0);
   // Throttle deteksi — lebih jarang di HP low-end biar tidak kewalahan
-  const DETECTION_INTERVAL = getDetectionIntervalMs(150); // ms
+  const DETECTION_INTERVAL = getDetectionIntervalMs(100); // ms
   const liveDescriptorRef = useRef<number[] | null>(null);
   // Buffer SNAPSHOT canvas frame frontal terakhir (bukan descriptor) —
   // extraction face-api async dilakukan di finishLiveness, bukan per-frame.
@@ -78,7 +82,7 @@ export default function CameraAbsen() {
   // eksponensial), pose jadi halus → challenge baru dianggap sah setelah pose
   // BENAR-BENAR dipertahankan beberapa frame, bukan 1 frame noise.
   const smoothedPoseRef = useRef<HeadPose>({ yaw: 0, pitch: 0 });
-  const POSE_EMA_ALPHA = 0.3; // 0 = lambat/lembut, 1 = instan. 0.3 ≈ responsif tapi halus
+  const POSE_EMA_ALPHA = 0.5; // 0 = lambat/lembut, 1 = instan. 0.5 = responsif & tetap halus
   // Ambang "wajah cukup frontal" — hanya frame FRONTAL yang masuk buffer descriptor.
   // Kenapa: buffer dipakai buat face-match setelah liveness. Kalau frame menoleh
   // (yaw besar) ikut ter-average, descriptor jadi campuran posisi → skor
@@ -352,9 +356,22 @@ export default function CameraAbsen() {
 
            const current = chs[idx];
 
-           // ── Timeout per pose ──
-           if (now - challengeStartTimeRef.current > CHALLENGE_TIMEOUT_MS) {
-             console.warn(`[Liveness] Challenge "${current.label}" timeout — liveness dianggap gagal`);
+           // ── Update countdown total sesi (60 detik) ──
+           const elapsed = now - sessionStartTimeRef.current;
+           const remainingMs = Math.max(0, LIVENESS_SESSION_TIMEOUT_MS - elapsed);
+           const remainingSec = Math.ceil(remainingMs / 1000);
+           if (remainingSec !== lastCountdownTickRef.current) {
+             lastCountdownTickRef.current = remainingSec;
+             setLivenessCountdown(remainingSec);
+           }
+
+           // ── Timeout TOTAL sesi (60 detik) ──
+           // Semua challenge harus selesai sebelum countdown habis.
+           // Liveness HANYA gagal saat countdown mencapai 0 — tidak ada
+           // timeout per-pose terpisah (user boleh mencoba pose yang sama
+           // selama masih ada sisa waktu).
+           if (elapsed > LIVENESS_SESSION_TIMEOUT_MS) {
+             console.warn(`[Liveness] Sesi liveness melebihi ${LIVENESS_SESSION_TIMEOUT_MS / 1000}s — liveness dianggap gagal`);
              setLivenessTimedOut(true);
              finishLiveness(false);
              return;
@@ -531,6 +548,8 @@ export default function CameraAbsen() {
       challengesRef.current = chs;
       currentChallengeIdxRef.current = 0;
       challengeStartTimeRef.current = performance.now();
+      sessionStartTimeRef.current = performance.now();
+      lastCountdownTickRef.current = Math.floor(LIVENESS_SESSION_TIMEOUT_MS / 1000);
       poseHoldStartRef.current = 0;
       blinkCycleRef.current = createBlinkCycleState();
       smoothedPoseRef.current = { yaw: 0, pitch: 0 }; // reset pose EMA per sesi
@@ -540,6 +559,7 @@ export default function CameraAbsen() {
       setCurrentChallengeIdx(0);
       setLivenessPassed(null);
       setLivenessTimedOut(false);
+      setLivenessCountdown(Math.floor(LIVENESS_SESSION_TIMEOUT_MS / 1000));
       requestRef.current = requestAnimationFrame(detectLiveness);
     }
     return () => {
@@ -968,6 +988,15 @@ export default function CameraAbsen() {
                           }`}
                         />
                       ))}
+                    </div>
+                    {/* Countdown total sesi (60 detik) */}
+                    <div className={`mt-4 inline-flex items-center gap-2 px-4 py-1.5 rounded-full border text-sm font-bold ${
+                      livenessCountdown <= 10
+                        ? 'bg-red-500/20 border-red-400/40 text-red-300 animate-pulse'
+                        : 'bg-white/10 border-white/20 text-white'
+                    }`}>
+                      <Clock size={14} />
+                      Sisa Waktu: {livenessCountdown} detik
                     </div>
                   </>
                 ) : (

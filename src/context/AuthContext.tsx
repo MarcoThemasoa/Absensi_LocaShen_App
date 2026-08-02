@@ -4,7 +4,8 @@ import { supabase } from '../lib/supabase';
 import type { Session } from '@supabase/supabase-js';
 import { initLocationCache } from '../lib/locationCache';
 import { preloadFaceLandmarker } from '../lib/faceLandmarker';
-import { getFaceEnrollmentInfo } from '../lib/faceMatcher';
+import { initFaceApi } from '../lib/faceApi';
+import { getFaceEnrollmentInfo, clearFaceDescriptorCache } from '../lib/faceMatcher';
 import { checkDeviceChangeOnLogin } from '../lib/deviceBinding';
 
 
@@ -168,6 +169,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Preload model FaceLandmarker lebih awal — biar sudah siap saat user buka kamera
     preloadFaceLandmarker();
 
+    // Preload face-api (tfjs + model pengenalan wajah) lebih awal juga —
+    // sebelumnya hanya di-load saat halaman kamera mount, membuat buka kamera
+    // terasa lambat karena harus download ~5MB dulu. Dengan preload di sini,
+    // model sudah siap sebelum user masuk ke halaman kamera.
+    initFaceApi().catch((err) =>
+      console.error('[AuthContext] Preload face-api gagal:', err),
+    );
+
     // Listen for auth changes — this fires INITIAL_SESSION on mount,
     // so no need for a separate getSession() call.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -288,6 +297,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setTodayAttendance(null);
     localStorage.removeItem('todayAttendance');
     setNeedsEnrollment(false);
+    // Buang cache descriptor wajah — sesi berikutnya ambil data fresh
+    clearFaceDescriptorCache();
   };
 
   const updateUser = (data: Partial<User>) => {

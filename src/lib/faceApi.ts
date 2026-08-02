@@ -122,7 +122,7 @@ export async function extractFaceDescriptor(
   const faceapi = await initFaceApi();
 
   const result = await faceapi
-    .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 320 }))
+    .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 224 }))
     .withFaceLandmarks()
     .withFaceDescriptor();
 

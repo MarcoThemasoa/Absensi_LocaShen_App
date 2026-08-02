@@ -28,17 +28,30 @@ export async function saveFaceDescriptor(
   );
 
   if (error) throw error;
+
+  // Descriptor berubah → buang cache lama biar sesi berikutnya ambil data baru
+  descriptorCache.delete(userId);
 }
+
+/**
+ * Cache in-memory per sesi untuk descriptor wajah (key: userId).
+ * Descriptor hanya berubah saat re-enrollment (cooldown 30 hari), jadi aman
+ * di-cache selama sesi berjalan — menghindari query Supabase berulang yang
+ * memperlambat cek skor wajah di halaman kamera.
+ * Nilai null (belum enrollment) juga di-cache agar tidak query ulang.
+ */
+const descriptorCache = new Map<string, number[] | null>();
 
 /**
  * Muat face descriptor milik user dari database.
  * Returns null jika belum enrollment.
- * Tidak pakai cachedQuery karena ini sensitif & rare —
- * lebih baik selalu fresh.
+ * Hasil di-cache per sesi (lihat descriptorCache) — di-reset saat logout.
  */
 export async function loadFaceDescriptor(
   userId: string
 ): Promise<number[] | null> {
+  if (descriptorCache.has(userId)) return descriptorCache.get(userId) ?? null;
+
   const { data, error } = await supabase
     .from('face_embeddings')
     .select('descriptor')
@@ -46,7 +59,17 @@ export async function loadFaceDescriptor(
     .maybeSingle();
 
   if (error) throw error;
-  return data?.descriptor ?? null;
+  const descriptor = data?.descriptor ?? null;
+  descriptorCache.set(userId, descriptor);
+  return descriptor;
+}
+
+/**
+ * Hapus cache descriptor (dipanggil saat logout / setelah re-enrollment
+ * supaya data terbaru diambil pada sesi berikutnya).
+ */
+export function clearFaceDescriptorCache(): void {
+  descriptorCache.clear();
 }
 
 export interface FaceEnrollmentInfo {
