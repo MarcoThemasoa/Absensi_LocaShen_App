@@ -157,3 +157,9 @@
   border: 2px solid transparent;
   background-clip: padding-box;
 }
+
+/* ── Indeterminate progress bar (ModelLoadingIndicator) ── */
+@keyframes slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}

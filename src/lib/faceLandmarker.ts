@@ -13,6 +13,8 @@
  */
 
 import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
+import { setLandmarkerStatus } from './modelLoading';
+import { logFace, warnFace } from './faceDebug';
 
 let instance: FaceLandmarker | null = null;
 let loadingPromise: Promise<FaceLandmarker> | null = null;
@@ -67,14 +69,23 @@ export function getModelStatus(): ModelStatus {
 
 /** Inisialisasi FaceLandmarker — singleton, GPU dulu, fallback ke CPU */
 export async function getFaceLandmarker(): Promise<FaceLandmarker> {
-  if (instance) return instance;
+  if (instance) {
+    logFace('model', 'face_landmarker.task sudah dimuat sebelumnya — pakai instance cache');
+    return instance;
+  }
   if (loadingPromise) return loadingPromise;
   loadAttempted = true;
+  setLandmarkerStatus({ state: 'loading' });
 
   loadingPromise = (async () => {
+    const wasmStart = Date.now();
     const vision = await FilesetResolver.forVisionTasks(
       'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm',
     );
+    logFace('model', 'MediaPipe WASM fileset BERHASIL diunduh', {
+      ms: Date.now() - wasmStart,
+      sumber: 'cdn.jsdelivr.net (@mediapipe/tasks-vision 0.10.35)',
+    });
 
     // Coba GPU dulu, fallback ke CPU kalau gagal
     const delegates = ['GPU', 'CPU'] as const;
@@ -82,6 +93,7 @@ export async function getFaceLandmarker(): Promise<FaceLandmarker> {
 
     for (const delegate of delegates) {
       try {
+        const modelStart = Date.now();
         const landmarker = await FaceLandmarker.createFromOptions(vision, {
           baseOptions: {
             modelAssetPath:
@@ -95,10 +107,16 @@ export async function getFaceLandmarker(): Promise<FaceLandmarker> {
         instance = landmarker;
         isLoaded = true;
         loadError = null;
+        setLandmarkerStatus({ state: 'ready' });
+        logFace('model', 'face_landmarker.task BERHASIL dimuat', {
+          ms: Date.now() - modelStart,
+          delegate,
+          blendshapes: true,
+        });
         return landmarker;
       } catch (err) {
         lastError = err;
-        console.warn(`[FaceLandmarker] delegate ${delegate} gagal:`, err);
+        warnFace('model', `delegate ${delegate} gagal — coba berikutnya`, String(err));
       }
     }
 
@@ -107,6 +125,7 @@ export async function getFaceLandmarker(): Promise<FaceLandmarker> {
     isLoaded = false;
     loadError = `Model deteksi wajah tidak bisa dimuat di HP ini. ${lastError instanceof Error ? lastError.message : ''}`;
     loadingPromise = null; // reset biar bisa dicoba lagi nanti
+    setLandmarkerStatus({ state: 'error', message: loadError });
     throw new Error(loadError);
   })();
 
@@ -131,6 +150,7 @@ export function resetFaceLandmarker(): void {
   instance = null;
   loadingPromise = null;
   isLoaded = false;
+  setLandmarkerStatus({ state: 'idle' });
 }
 
 // ═══════════════════════════════════════════════════

@@ -19,25 +19,27 @@ export default function EmployeeDashboard() {
   const todayStr = format(new Date(), 'yyyy-MM-dd');
   const isTodayAttendance = todayAttendance?.date === todayStr;
 
-  // Fetch recent records from Supabase (cached)
+  // Fetch recent records dari RPC (Postgres pre-planned — lebih cepat dari PostgREST)
   const [myRecentRecords, setMyRecentRecords] = useState<any[]>([]);
+  const [isLoadingRecent, setIsLoadingRecent] = useState(true);
   useEffect(() => {
-    if (!user?.id) return;
-    cachedQuery<any[]>(`dashboard:recent:${user.id}`, () =>
-      supabase
-        .from('attendance_records')
-        .select('id, user_id, date, time_in, time_out, status, photo_url, is_forgot_clock_out')
-        .eq('user_id', user.id)
-        .order('date', { ascending: false })
-        .limit(2)
-    ).then(({ data }) => {
-      if (data) setMyRecentRecords(data.map((a: any) => ({
-        id: a.id, userId: a.user_id, userName: a.user_name,
-        date: a.date, timeIn: a.time_in, timeOut: a.time_out,
-        status: a.status, locationId: a.location_id, photoUrl: a.photo_url,
-        is_forgot_clock_out: a.is_forgot_clock_out,
-      })));
-    });
+    if (!user?.id) {
+      setIsLoadingRecent(false);
+      return;
+    }
+    // Key diberi versi (v2) — p_limit berubah 2 → 5, hasil cache lama tidak dipakai
+    cachedQuery<any[]>(`dashboard:recent:v2:${user.id}`, () =>
+      supabase.rpc('get_employee_recent', { p_user_id: user.id, p_limit: 5 })
+    )
+      .then(({ data }) => {
+        if (data) setMyRecentRecords((data as any[]).map((a: any) => ({
+          id: a.id, userId: a.user_id, userName: a.user_name,
+          date: a.date, timeIn: a.time_in, timeOut: a.time_out,
+          status: a.status, locationId: a.location_id, photoUrl: a.photo_url,
+          is_forgot_clock_out: a.is_forgot_clock_out,
+        })));
+      })
+      .finally(() => setIsLoadingRecent(false));
   }, [user?.id]);
 
   // Clock ticker — always runs to update the current time display
@@ -248,7 +250,17 @@ export default function EmployeeDashboard() {
             </Link>
           </div>
           <div className="space-y-3">
-            {myRecentRecords.length > 0 ? myRecentRecords.map((record) => (
+            {isLoadingRecent ? (
+              // Skeleton loading — ditampilkan sementara riwayat di-fetch
+              <>
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="bg-white p-4 rounded-2xl drop-shadow-sm border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.02)] animate-pulse">
+                    <div className="h-3.5 w-24 bg-slate-200 rounded mb-2"></div>
+                    <div className="h-3 w-40 bg-slate-100 rounded"></div>
+                  </div>
+                ))}
+              </>
+            ) : myRecentRecords.length > 0 ? myRecentRecords.map((record) => (
               <div key={record.id} className="bg-white p-4 rounded-2xl drop-shadow-sm border border-gray-100 flex items-center justify-between shadow-[0_2px_10px_rgb(0,0,0,0.02)]">
                 <div>
                   <p className="font-bold text-gray-900 text-sm">{format(parseISO(record.date), 'dd MMM yyyy', { locale: indonesianLocale })}</p>

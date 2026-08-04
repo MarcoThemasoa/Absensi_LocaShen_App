@@ -6,6 +6,12 @@
     <title>Absensi Digital GeoFace</title>
     <link rel="icon" type="image/png" href="/SumberTigaJaya.png" />
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" />
+    <!-- Fallback CSP (dipakai jika header server tidak terpasang, mis. saat dev).
+         Header di vercel.json akan menggantikan/persis dengan ini di produksi. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob: https://va.vercel-scripts.com https://www.googletagmanager.com https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://storage.googleapis.com https://*.tile.openstreetmap.org https://www.openstreetmap.org; font-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://storage.googleapis.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://va.vercel-scripts.com https://www.google-analytics.com https://www.googletagmanager.com; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+    />
   </head>
   <body>
     <div id="root"></div>

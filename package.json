@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:xss": "tsx scripts/test-xss.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

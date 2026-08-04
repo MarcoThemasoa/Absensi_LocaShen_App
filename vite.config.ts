@@ -33,5 +33,10 @@ export default defineConfig(() => {
         },
       },
     },
+    // Worker face-api memakai dynamic import (code-splitting) di dalamnya,
+    // jadi butuh format ES module worker (iife tidak mendukung code-splitting).
+    worker: {
+      format: 'es' as const,
+    },
   };
 });

@@ -6,7 +6,7 @@ import { Card, CardContent } from '../components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import { ArrowLeft, CheckCircle2, Scan, MapPinned, XCircle, Loader2, Clock, AlertCircle, BadgeCheck } from 'lucide-react';
 import { getFaceLandmarker, isFaceLandmarkerReady, estimateHeadPose, getDetectionIntervalMs, isLowEndDevice } from '../lib/faceLandmarker';
-import { initFaceApi, extractFaceDescriptor, matchFaceDistance, captureFaceSnapshot, FACE_MATCH_DISTANCE, isFaceApiReady } from '../lib/faceApi';
+import { initFaceApi, extractFaceDescriptor, extractFaceDescriptorsBatch, matchFaceDistance, captureFaceSnapshot, FACE_MATCH_DISTANCE, isFaceApiReady } from '../lib/faceApi';
 import type { HeadPose } from '../lib/faceLandmarker';
 import type { FaceLandmarker } from '@mediapipe/tasks-vision';
 import { useAuth } from '../context/AuthContext';
@@ -17,9 +17,10 @@ import { invalidateCache } from '../lib/supabaseCache';
 import { fmtHHmm } from '../lib/utils';
 import { toast } from 'sonner';
 import { loadFaceDescriptor } from '../lib/faceMatcher';
-import { generateChallenges, CHALLENGE_COUNT, LIVENESS_SESSION_TIMEOUT_MS, updateBlinkCycle, createBlinkCycleState } from '../lib/livenessChallenge';
-import type { ChallengeDef, BlinkCycleState } from '../lib/livenessChallenge';
+import { generateChallenges, CHALLENGE_COUNT, LIVENESS_SESSION_TIMEOUT_MS, updateBlinkCycle, createBlinkCycleState, createEyeCalibration, collectEyeCalibration, getEyeBlinkThresholds } from '../lib/livenessChallenge';
+import type { ChallengeDef, BlinkCycleState, EyeCalibrationState } from '../lib/livenessChallenge';
 import { registerDevice } from '../lib/deviceBinding';
+import { logFace, warnFace, errorFace } from '../lib/faceDebug';
 
 export default function CameraAbsen() {
   const { user, todayAttendance, locations, recordCheckIn, recordCheckOut } = useAuth();
@@ -61,6 +62,9 @@ export default function CameraAbsen() {
   const lastCountdownTickRef = useRef(0); // kapan terakhir update countdown (perf.now)
   const poseHoldStartRef = useRef(0); // kapan pose mulai ditahan (perf.now)
   const blinkCycleRef = useRef<BlinkCycleState>(createBlinkCycleState()); // state siklus kedip
+  // ── Kalibrasi baseline mata (dynamic blink threshold, adaptif ke mata sipit) ──
+  const eyeCalibrationRef = useRef<EyeCalibrationState>(createEyeCalibration());
+  const eyeCalibrationLoggedRef = useRef(false);
   const livenessDoneRef = useRef(false);
   const [showForgotConfirm, setShowForgotConfirm] = useState(false);
   const [forgotConfirmed, setForgotConfirmed] = useState(false);
@@ -157,10 +161,16 @@ export default function CameraAbsen() {
                   // Belum enrollment — izinkan
                   setFacePreCheckPass(true);
                   setFacePreCheckScore(null);
+                  warnFace('faceCheck', 'belum enrollment — skor pre-check tidak dihitung');
+                } else {
+                  logFace('faceCheck', 'stored descriptor dimuat', {
+                    dim: stored.length,
+                  });
                 }
               })
               .catch(() => {
                 setFacePreCheckPass(true); // fallback: izinkan
+                warnFace('faceCheck', 'load stored descriptor gagal — fallback izinkan');
               })
               .finally(() => {
                 setFacePreChecking(false);
@@ -190,10 +200,19 @@ export default function CameraAbsen() {
                     const score = matchFaceDistance(liveDesc, storedDescriptorRef.current);
                     setFacePreCheckScore(score);
                     setFacePreCheckPass(score <= FACE_MATCH_DISTANCE);
+                    logFace('faceCheck', 'skor pre-check', {
+                      frame: faceCheckFrameRef.current,
+                      score: score.toFixed(4),
+                      pass: score <= FACE_MATCH_DISTANCE,
+                      threshold: FACE_MATCH_DISTANCE,
+                    });
+                  } else if (!liveDesc) {
+                    warnFace('faceCheck', 'extract pre-check: wajah tidak terdeteksi oleh face-api');
                   }
                 })
                 .catch((err) => {
                   console.error('[FaceCheckLoop] extract face-api gagal:', err);
+                  errorFace('faceCheck', 'extract face-api gagal', err);
                 })
                 .finally(() => {
                   isFaceApiExtractingRef.current = false;
@@ -297,10 +316,12 @@ export default function CameraAbsen() {
         setFaceLandmarker(landmarker);
         setIsModelLoading(false);
         setModelLoadError(null);
+        logFace('faceCheck', 'FaceLandmarker siap di halaman kamera');
       })
       .catch((error) => {
         clearTimeout(timeoutId);
         console.error('Error initializing FaceLandmarker', error);
+        errorFace('faceCheck', 'FaceLandmarker gagal init', error);
         setIsModelLoading(false);
         setModelLoadError(
           'HP ini tidak mendukung deteksi wajah. Anda tetap bisa absen tanpa verifikasi wajah.'
@@ -310,9 +331,13 @@ export default function CameraAbsen() {
     // Preload face-api (descriptor 128-d) di background — biar skor langsung
     // muncul saat wajah terdeteksi, tanpa nunggu download model di tengah alur.
     initFaceApi()
-      .then(() => setIsApiLoading(false))
+      .then(() => {
+        setIsApiLoading(false);
+        logFace('faceMatch', 'face-api siap di halaman kamera');
+      })
       .catch((error) => {
         console.error('Error initializing face-api', error);
+        errorFace('faceMatch', 'face-api gagal init', error);
         setIsApiLoading(false);
       });
 
@@ -382,6 +407,19 @@ export default function CameraAbsen() {
              const blendshapes = results.faceBlendshapes?.[0]?.categories ?? [];
              const headPose = estimateHeadPose(landmarks);
 
+             // ── Kalibrasi baseline mata ──
+             // Kumpulkan sampel bukaan mata saat mata terbuka normal untuk
+             // threshold kedip DINAMIS (adaptif ke bentuk mata sipit).
+             collectEyeCalibration(eyeCalibrationRef.current, blendshapes);
+             if (eyeCalibrationRef.current.calibrated && !eyeCalibrationLoggedRef.current) {
+               eyeCalibrationLoggedRef.current = true;
+               logFace('liveness', 'kalibrasi baseline mata selesai', {
+                 left: eyeCalibrationRef.current.leftBaseline?.toFixed(3),
+                 right: eyeCalibrationRef.current.rightBaseline?.toFixed(3),
+                 thresholds: getEyeBlinkThresholds(eyeCalibrationRef.current),
+               });
+             }
+
              // ── EMA smoothing pose ──
              // Mencegah 1 frame noise langsung memenuhi/menggagalkan challenge.
              const smoothed = smoothedPoseRef.current;
@@ -406,9 +444,16 @@ export default function CameraAbsen() {
 
              // ── Kedip ditangani khusus: butuh SIKLUS PENUH (buka→tutup→buka) ──
              // Supaya kedipan tidak sadar / noise 1 frame tidak langsung lolos.
+             // Threshold dinamis dari kalibrasi baseline mata (adaptif ke mata
+             // sipit — orang dengan bukaan alami kecil tetap bisa kedip).
              let satisfied = false;
              if (current.id === 'kedip') {
-               satisfied = updateBlinkCycle(blinkCycleRef.current, blendshapes, now);
+               satisfied = updateBlinkCycle(
+                 blinkCycleRef.current,
+                 blendshapes,
+                 now,
+                 getEyeBlinkThresholds(eyeCalibrationRef.current)
+               );
              } else {
                satisfied = current.check(pose, blendshapes);
              }
@@ -461,20 +506,56 @@ export default function CameraAbsen() {
     const runFaceMatch = async () => {
       try {
         const video = webcamRef.current?.video;
-        if (!video || !user?.id) return;
+        if (!video || !user?.id) {
+          warnFace('faceMatch', 'tidak lanjut — video atau user.id tidak tersedia', {
+            hasVideo: !!video,
+            userId: user?.id ?? null,
+          });
+          return;
+        }
 
         await initFaceApi();
-        if (isFaceApiExtractingRef.current) return;
+
+        // ── FIX race condition: ──
+        // Pre-check loop (step 'face') bisa saja masih mengekstrak descriptor
+        // saat liveness selesai (misal face-api baru selesai download). Sebelumnya
+        // kode langsung `return` tanpa skor — sekarang TUNGGU guard kosong dulu
+        // (maks 15 detik) lalu lanjut hitung skor.
+        let waitedMs = 0;
+        while (isFaceApiExtractingRef.current && waitedMs < 15000) {
+          await new Promise((r) => setTimeout(r, 100));
+          waitedMs += 100;
+        }
+        if (isFaceApiExtractingRef.current) {
+          errorFace('faceMatch', 'guard extraction tidak kunjung kosong setelah 15s — lanjut paksa');
+        } else if (waitedMs > 0) {
+          logFace('faceMatch', 'menunggu extraction pre-check selesai', { waitedMs });
+        }
         isFaceApiExtractingRef.current = true;
 
-        const descriptors: number[][] = [];
         const snapshots = liveSnapBuffer.current;
         // Batasi jumlah snapshot (ambil terbaru) biar tidak lambat
         const toProcess = snapshots.slice(-MAX_BUFFER);
-        for (const snap of toProcess) {
-          const desc = await extractFaceDescriptor(snap);
-          if (desc) descriptors.push(desc);
+        logFace('faceMatch', 'mulai ekstraksi descriptor akhir', {
+          bufferLength: snapshots.length,
+          toProcess: toProcess.length,
+        });
+        if (toProcess.length === 0) {
+          warnFace('faceMatch', 'buffer snapshot KOSONG — tidak ada frame frontal saat liveness, skor tidak dihitung');
         }
+
+        const descriptors: number[][] = [];
+        if (toProcess.length > 0) {
+          // Batch ke worker — satu round-trip untuk seluruh buffer frontal
+          const results = await extractFaceDescriptorsBatch(toProcess);
+          for (const d of results) {
+            if (d) descriptors.push(d);
+          }
+        }
+        logFace('faceMatch', 'ekstraksi selesai', {
+          descriptorsOk: descriptors.length,
+          totalSnapshots: toProcess.length,
+        });
 
         let avgDesc: number[] | null = null;
         if (descriptors.length > 0) {
@@ -496,13 +577,28 @@ export default function CameraAbsen() {
             setFaceMatchPass(score <= FACE_MATCH_DISTANCE);
             if (score > FACE_MATCH_DISTANCE) {
               console.warn(`[FaceMatch] Wajah tidak cocok! Jarak: ${score.toFixed(4)} (threshold: ${FACE_MATCH_DISTANCE})`);
+              warnFace('faceMatch', 'skor AKHIR: WAJAH TIDAK COCOK', {
+                score: score.toFixed(4),
+                threshold: FACE_MATCH_DISTANCE,
+                descriptorsOk: descriptors.length,
+              });
             } else {
               console.log(`[FaceMatch] Wajah cocok. Jarak: ${score.toFixed(4)}`);
+              logFace('faceMatch', 'skor AKHIR: WAJAH COCOK', {
+                score: score.toFixed(4),
+                threshold: FACE_MATCH_DISTANCE,
+                descriptorsOk: descriptors.length,
+              });
             }
+          } else {
+            warnFace('faceMatch', 'stored descriptor null saat match akhir — wajah belum terdaftar');
           }
+        } else {
+          warnFace('faceMatch', 'avgDesc null (descriptors kosong) — skor tidak dihitung');
         }
       } catch (err) {
         console.error('[FaceMatch] Gagal memproses wajah:', err);
+        errorFace('faceMatch', 'gagal memproses wajah', err);
       } finally {
         isFaceApiExtractingRef.current = false;
         setIsFaceMatching(false);
@@ -512,6 +608,10 @@ export default function CameraAbsen() {
     // Start face matching in background
     if (user?.id) {
       setIsFaceMatching(true);
+      logFace('faceMatch', 'finishLiveness dipanggil — mulai face matching', {
+        passed,
+        bufferLength: liveSnapBuffer.current.length,
+      });
       runFaceMatch();
     }
 
@@ -552,6 +652,8 @@ export default function CameraAbsen() {
       lastCountdownTickRef.current = Math.floor(LIVENESS_SESSION_TIMEOUT_MS / 1000);
       poseHoldStartRef.current = 0;
       blinkCycleRef.current = createBlinkCycleState();
+      eyeCalibrationRef.current = createEyeCalibration(); // reset kalibrasi baseline mata per sesi
+      eyeCalibrationLoggedRef.current = false;
       smoothedPoseRef.current = { yaw: 0, pitch: 0 }; // reset pose EMA per sesi
       livenessDoneRef.current = false;
       liveSnapBuffer.current = [];

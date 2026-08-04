@@ -8,6 +8,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { cachedQuery } from '../lib/supabaseCache';
+import { sanitizeText } from '../lib/sanitize';
 import { Combobox } from '../components/ui/combobox';
 import { Button } from '../components/ui/button';
 
@@ -161,52 +162,25 @@ export default function AdminDashboard() {
       days.push({ name: dayNames[d.getDay()], date: format(d, 'yyyy-MM-dd') });
     }
 
-    // ── FIRE ALL INDEPENDENT QUERIES IN PARALLEL ──
-    // Previously these ran sequentially, creating a 3.8s waterfall.
-    // Now they run concurrently — total time = slowest single query.
-    const [todayResult, userResult, chartResult] = await Promise.all([
-      // 1. Today's attendance (user_id + status for stats)
-      cachedQuery<any[]>(`dashboard:today:${today}`, () =>
-        supabase
-          .from('attendance_records')
-          .select('user_id, status')
-          .eq('date', today),
-      ),
-
-      // 2. Active employee IDs (by location or all)
-      selectedLocationId !== 'semua'
-        ? cachedQuery<any[]>('dashboard:locUsers:' + selectedLocationId, () =>
-            supabase
-              .from('users')
-              .select('id')
-              .eq('location_id', selectedLocationId),
-          )
-        : cachedQuery<any[]>('dashboard:allEmp', () =>
-            supabase
-              .from('users')
-              .select('id')
-              .eq('role', 'employee')
-              .eq('status', 'active'),
-          ),
-
-      // 3. Chart data for the selected range (date + status) — filter by location too
-      cachedQuery<any[]>(
-        `dashboard:chart:${days[0].date}:${days[days.length - 1].date}:loc${selectedLocationId}`,
-        () => {
-          let query = supabase
-            .from('attendance_records')
-            .select('date, status, user_id')
-            .gte('date', days[0].date)
-            .lte('date', days[days.length - 1].date);
-          return query;
-        },
-      ),
-    ]);
+    // ── FIRE RPC (single round-trip) — Postgres pre-planned, jauh lebih cepat ──
+    // Sebelumnya 3 query PostgREST paralel; sekarang 1 fungsi RPC
+    // `get_admin_dashboard` yang mengembalikan { today, activeIds, chart }.
+    const result = await cachedQuery<any>(
+      `dashboard:rpc:${today}:${days[0].date}:${days[days.length - 1].date}:loc${selectedLocationId}`,
+      () =>
+        supabase.rpc('get_admin_dashboard', {
+          p_today: today,
+          p_start: days[0].date,
+          p_end: days[days.length - 1].date,
+          p_location_id: selectedLocationId !== 'semua' ? selectedLocationId : null,
+        }),
+    );
 
     // ── PROCESS RESULTS ──
-    const allTodayAtt = todayResult.data || [];
-    const users = userResult.data || [];
-    const chartAtt = chartResult.data || [];
+    const payload = result.data as any;
+    const allTodayAtt: any[] = payload?.today ?? [];
+    const users: any[] = (payload?.activeIds ?? []).map((id: string) => ({ id }));
+    const chartAtt: any[] = payload?.chart ?? [];
 
     // Filter today's attendance by selected location
     const activeEmployeeIds: string[] = users.map((u: any) => u.id);
@@ -330,7 +304,7 @@ export default function AdminDashboard() {
                   <NotificationIcon type={n.type} />
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold text-gray-800 leading-snug">
-                      {truncateMessage(n.message)}
+                      {truncateMessage(sanitizeText(n.message, 160))}
                     </p>
                     <p className="text-xs text-gray-400 font-medium mt-0.5">
                       {format(parseISO(n.createdAt), 'dd MMM yy HH:mm', {
@@ -340,7 +314,7 @@ export default function AdminDashboard() {
                     {/* Nama karyawan — kiri bawah card, dipotong jika > 10 karakter */}
                     {n.userName && (
                       <p className="text-[11px] text-teal-700 font-semibold mt-1">
-                        Oleh: {truncateName(n.userName)}
+                        Oleh: {truncateName(sanitizeText(n.userName, 30))}
                       </p>
                     )}
                   </div>

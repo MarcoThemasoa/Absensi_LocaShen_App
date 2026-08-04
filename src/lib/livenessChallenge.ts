@@ -67,17 +67,137 @@ export function createBlinkCycleState(): BlinkCycleState {
   return { wasClosed: false, closedAt: null, sawClosed: false };
 }
 
+/** Skor blendshape eyeBlink — 0 = terbuka lebar, 1 = tertutup penuh. */
+function eyeBlinkScores(
+  blendshapes: { categoryName: string; score: number }[]
+): { left: number; right: number } {
+  const left = blendshapes.find((s) => s.categoryName === 'eyeBlinkLeft')?.score ?? 0;
+  const right = blendshapes.find((s) => s.categoryName === 'eyeBlinkRight')?.score ?? 0;
+  return { left, right };
+}
+
+/**
+ * True kalau KEDUA mata melewati threshold-nya masing-masing.
+ * Threshold per-mata (bukan satu angka) supaya bisa adaptif ke bentuk mata
+ * (misal mata sipit dengan bukaan alami kecil → threshold dinaikkan).
+ */
+export function isBlinkingPair(
+  blendshapes: { categoryName: string; score: number }[],
+  thresholds: { left: number; right: number }
+): boolean {
+  const { left, right } = eyeBlinkScores(blendshapes);
+  return left > thresholds.left && right > thresholds.right;
+}
+
+// ═══════════════════════════════════════════════════
+// Dynamic blink threshold — kalibrasi baseline mata per user
+// ═══════════════════════════════════════════════════
+//
+// Masalah: deteksi kedip memakai threshold ABSOLUT (0.45). Orang bermata
+// sipit/monolid punya rasio bukaan alami yang kecil → skor eyeBlink saat
+// "mata terbuka normal" bisa di atas 0.45 → sistem mengira selalu menutup →
+// challenge kedip tidak pernah selesai (timeout → ditandai mencurigakan).
+//
+// Solusi: kalibrasi baseline bukaan mata di awal sesi liveness (mata terbuka
+// normal), lalu threshold kedip = baseline + margin (delta). Otomatis adaptif:
+//   - mata lebar: baseline ~0.1 → threshold ~0.45 (tetap seperti dulu)
+//   - mata sipit: baseline ~0.4 → threshold ~0.60 (masih di bawah kedip sungguhan ~0.9)
+// Sampel saat mata menutup (kedip tak sengaja saat kalibrasi) dibuang.
+
+export interface EyeCalibrationState {
+  leftSamples: number[];
+  rightSamples: number[];
+  leftBaseline: number | null;   // skor eyeBlink saat mata terbuka normal
+  rightBaseline: number | null;
+  calibrated: boolean;
+}
+
+/** Jumlah sampel baseline sebelum kalibrasi dianggap selesai. */
+export const EYE_CALIBRATION_SAMPLES = 10;
+/** Sampel yang terlihat "menutup" (kedip tak sengaja) dibuang dari kalibrasi. */
+export const EYE_CALIBRATION_SKIP_THRESHOLD = 0.6;
+/** Margin threshold di atas baseline mata terbuka. */
+export const EYE_BLINK_DELTA = 0.2;
+/** Batas atas threshold — supaya kedip sungguhan (≈0.9+) tetap > threshold. */
+export const EYE_BLINK_MAX_THRESHOLD = 0.9;
+
+export function createEyeCalibration(): EyeCalibrationState {
+  return {
+    leftSamples: [],
+    rightSamples: [],
+    leftBaseline: null,
+    rightBaseline: null,
+    calibrated: false,
+  };
+}
+
+function medianSorted(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = values.slice().sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[mid];
+  return (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * Kumpulkan sampel bukaan mata untuk kalibrasi baseline.
+ * Sampel dengan skor > EYE_CALIBRATION_SKIP_THRESHOLD (mata sedang menutup,
+ * misal kedip tak sengaja) dibuang supaya tidak mencemari baseline.
+ * Panggil tiap frame saat wajah terdeteksi — fungsi ini guard sendiri.
+ */
+export function collectEyeCalibration(
+  state: EyeCalibrationState,
+  blendshapes: { categoryName: string; score: number }[]
+): void {
+  if (state.calibrated || state.leftSamples.length >= EYE_CALIBRATION_SAMPLES) return;
+  const { left, right } = eyeBlinkScores(blendshapes);
+  if (left > EYE_CALIBRATION_SKIP_THRESHOLD || right > EYE_CALIBRATION_SKIP_THRESHOLD) return;
+  state.leftSamples.push(left);
+  state.rightSamples.push(right);
+  if (state.leftSamples.length >= EYE_CALIBRATION_SAMPLES) {
+    finalizeEyeCalibration(state);
+  }
+}
+
+/** Finalisasi baseline = median sampel (tahan terhadap kedip sesaat). */
+export function finalizeEyeCalibration(state: EyeCalibrationState): void {
+  if (state.calibrated) return;
+  state.leftBaseline = medianSorted(state.leftSamples);
+  state.rightBaseline = medianSorted(state.rightSamples);
+  state.calibrated = true;
+}
+
+/**
+ * Threshold kedip dinamis per mata: baseline + delta, di-clamp agar tidak
+ * turun di bawah BLINK_THRESHOLD (perilaku lama) dan tidak lewat batas atas.
+ * Kalau belum terkalibrasi → pakai BLINK_THRESHOLD.
+ */
+export function getEyeBlinkThresholds(
+  state: EyeCalibrationState
+): { left: number; right: number } {
+  const calc = (baseline: number | null): number => {
+    if (baseline === null) return BLINK_THRESHOLD;
+    const t = baseline + EYE_BLINK_DELTA;
+    return Math.min(Math.max(t, BLINK_THRESHOLD), EYE_BLINK_MAX_THRESHOLD);
+  };
+  return { left: calc(state.leftBaseline), right: calc(state.rightBaseline) };
+}
+
 /**
  * Update state kedip dan return true jika SIKLUS PENUH selesai
- * (buka → tutup → buka). Pakai threshold lebih tinggi (0.45)
+ * (buka → tutup → buka).
+ *
+ * Threshold dinamis (opsional): kalau diberikan, dipakai per-mata supaya
+ * adaptif ke bentuk mata (lihat getEyeBlinkThresholds). Default = 0.45
  * supaya tidak mudah false-positive.
  */
 export function updateBlinkCycle(
   state: BlinkCycleState,
   blendshapes: { categoryName: string; score: number }[],
-  now: number
+  now: number,
+  thresholds: { left: number; right: number } = { left: BLINK_THRESHOLD, right: BLINK_THRESHOLD }
 ): boolean {
-  const closed = isBlinking(blendshapes, BLINK_THRESHOLD);
+  const closed = isBlinkingPair(blendshapes, thresholds);
 
   if (closed) {
     // Mata menutup — catat awal penutupan

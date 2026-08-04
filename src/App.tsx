@@ -7,6 +7,7 @@ import { Toaster } from './components/ui/sonner';
 import { AnimatePresence, motion } from 'motion/react';
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from '@vercel/speed-insights/react';
+import { ModelLoadingIndicator } from './components/ModelLoadingIndicator';
 
 /** Scroll to top setiap kali pathname berubah */
 function ScrollToTop() {
@@ -132,6 +133,7 @@ export default function App() {
         <AnimatedRoutes />
       </Router>
       <Toaster />
+      <ModelLoadingIndicator />
       <Analytics />
       <SpeedInsights />
     </AuthProvider>

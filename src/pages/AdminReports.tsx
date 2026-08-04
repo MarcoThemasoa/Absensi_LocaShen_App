@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase';
 import { cachedQuery } from '../lib/supabaseCache';
 import { Download, Search, Maximize2, ChevronLeft, ChevronRight, Activity, Clock, MapPin, ShieldAlert, ShieldCheck, Smartphone, Bell } from 'lucide-react';
 import { FACE_MATCH_DISTANCE } from '../lib/faceApi';
+import { sanitizeText, isSafeUrl } from '../lib/sanitize';
 import { format, parseISO } from 'date-fns';
 import { indonesianLocale } from '../lib/date-locale';
 import { Combobox } from '../components/ui/combobox';
@@ -189,19 +190,17 @@ export default function AdminReports() {
       const startDate = getStartDate(timeFilter);
       const logStartDate = getStartDate(logTimeFilter);
 
-      const attCacheKey = `reports:attendance:${timeFilter}`;
       const logCacheKey = `reports:logs:${logTimeFilter}`;
 
       const [attResult, userResult, logResult, notifResult] = await Promise.all([
-        cachedQuery<any[]>(attCacheKey, () => {
-          let query = supabase
-            .from('attendance_records')
-            .select('id, user_id, date, time_in, time_out, status, location_lat, location_lng, photo_url, is_forgot_clock_out, face_match_score, liveness_passed, is_suspicious')
-            .order('date', { ascending: false })
-            .limit(200);
-          if (startDate) query = query.gte('date', startDate);
-          return query;
-        }, 180_000),
+        // Attendance via RPC — Postgres pre-planned (lebih cepat dari PostgREST)
+        cachedQuery<any>(`reports:attendance:${timeFilter}`, () =>
+          supabase.rpc('get_reports_attendance', {
+            p_start: startDate || null,
+            p_end: null,
+            p_limit: 200,
+          })
+        , 180_000),
         cachedQuery<any[]>('reports:users', () =>
           supabase.from('users').select('id, name, role, status, location_id')
         ),
@@ -280,7 +279,8 @@ export default function AdminReports() {
         const emp = userMap.get(n.user_id);
         return {
           id: n.id, adminId: '', adminName: emp?.name || '',
-          action: n.message, timestamp: n.created_at,
+          // Sanitasi pesan notifikasi (karakter kontrol dihapus, panjang dibatasi)
+          action: sanitizeText(n.message, 500), timestamp: n.created_at,
           location: { lat: 0, lng: 0 }, locationName: '',
           source: n.type === 'device_change' ? 'device' as const : 'late' as const,
           adminCabang: resolveCabang(emp),
@@ -679,7 +679,7 @@ export default function AdminReports() {
                           </div>
                         )}
                       </div>
-                      {report.photoUrl && (
+                      {isSafeUrl(report.photoUrl) && (
                         <div className="w-full mt-1 rounded-2xl overflow-hidden shadow-md">
                           <img src={report.photoUrl} alt="Bukti" className="w-full h-auto object-cover" />
                         </div>
@@ -747,7 +747,7 @@ export default function AdminReports() {
                       {!report.isSuspicious && <span className="text-gray-400 text-xs">Normal</span>}
                     </TableCell>
                     <TableCell className="text-center flex justify-center items-center py-3">
-                      {report.photoUrl ? (
+                      {isSafeUrl(report.photoUrl) ? (
                         <Dialog>
                           <DialogTrigger render={<button className="relative w-12 h-12 rounded-xl overflow-hidden cursor-pointer group shadow-sm border border-gray-200" />}>
                             <img src={report.photoUrl} alt="Bukti" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" />

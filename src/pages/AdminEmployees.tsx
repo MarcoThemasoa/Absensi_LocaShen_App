@@ -8,6 +8,7 @@ import { Input } from '../components/ui/input';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { cachedQuery, invalidateCache } from '../lib/supabaseCache';
+import { sanitizeText } from '../lib/sanitize';
 import { Check, X, Edit, Trash2, Clock, UserCog, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, MapPin, CheckCircle2, XCircle, Calendar, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
@@ -250,8 +251,9 @@ export default function AdminEmployees() {
         const { error } = await supabase
           .from('users')
           .update({ 
-            name: updatedUser.name, 
-            position: updatedUser.position || null,
+            // Sanitasi input teks sebelum disimpan (karakter kontrol dihapus, trim, cap panjang)
+            name: sanitizeText(updatedUser.name, 120),
+            position: sanitizeText(updatedUser.position, 80) || null,
             location_id: updatedUser.locationId || null
           })
           .eq('id', updatedUser.id);

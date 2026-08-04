@@ -8,6 +8,7 @@
  */
 
 import { supabase } from './supabase';
+import { logFace, warnFace, errorFace } from './faceDebug';
 
 /**
  * Simpan (upsert) face descriptor ke tabel face_embeddings.
@@ -28,6 +29,8 @@ export async function saveFaceDescriptor(
   );
 
   if (error) throw error;
+
+  logFace('faceMatcher', 'saveFaceDescriptor tersimpan', { userId });
 
   // Descriptor berubah → buang cache lama biar sesi berikutnya ambil data baru
   descriptorCache.delete(userId);
@@ -50,7 +53,15 @@ const descriptorCache = new Map<string, number[] | null>();
 export async function loadFaceDescriptor(
   userId: string
 ): Promise<number[] | null> {
-  if (descriptorCache.has(userId)) return descriptorCache.get(userId) ?? null;
+  if (descriptorCache.has(userId)) {
+    const cached = descriptorCache.get(userId) ?? null;
+    logFace('faceMatcher', 'loadFaceDescriptor (cache hit)', {
+      userId,
+      enrolled: cached !== null,
+      dim: cached?.length ?? null,
+    });
+    return cached;
+  }
 
   const { data, error } = await supabase
     .from('face_embeddings')
@@ -58,9 +69,20 @@ export async function loadFaceDescriptor(
     .eq('user_id', userId)
     .maybeSingle();
 
-  if (error) throw error;
+  if (error) {
+    errorFace('faceMatcher', 'loadFaceDescriptor query gagal', error.message);
+    throw error;
+  }
   const descriptor = data?.descriptor ?? null;
   descriptorCache.set(userId, descriptor);
+  logFace('faceMatcher', 'loadFaceDescriptor (cache miss)', {
+    userId,
+    enrolled: descriptor !== null,
+    dim: descriptor?.length ?? null,
+  });
+  if (!descriptor) {
+    warnFace('faceMatcher', 'belum ada enrollment wajah untuk user ini (descriptor null)');
+  }
   return descriptor;
 }
 

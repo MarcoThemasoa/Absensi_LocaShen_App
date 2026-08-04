@@ -9,6 +9,7 @@ import { UserPlus, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
 import { validateRegisterForm } from '../lib/validators';
+import { sanitizeText } from '../lib/sanitize';
 import { supabase } from '../lib/supabase';
 
 export default function EmployeeRegister() {
@@ -61,14 +62,18 @@ export default function EmployeeRegister() {
 
     try {
       // 1. Daftarkan user ke Supabase Auth
+      // Sanitasi input teks (buang karakter kontrol, trim, cap panjang) sebelum dikirim.
+      const cleanName = sanitizeText(name, 120);
+      const cleanDivision = sanitizeText(division, 80);
+      const cleanPosition = sanitizeText(position, 80);
       const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
+        email: sanitizeText(email, 254),
         password,
         options: {
           data: {
-            full_name: name.trim(),
-            division,
-            position: position.trim(),
+            full_name: cleanName,
+            division: cleanDivision,
+            position: cleanPosition,
             age: Number(age),
             location_id: locationId,
           },
